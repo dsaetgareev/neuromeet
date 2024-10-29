@@ -46,7 +46,7 @@ fn switch(routes: Route) -> Html {
         Route::Login => html! { <Login/> },
         Route::Meeting { email, id } => html! {
             <>
-                <TopBar/>
+                <TopBar room_id={id.clone()}/>
                 <AttendantsComponent email={email} id={id} webtransport_enabled={*WEBTRANSPORT_ENABLED} e2ee_enabled={*E2EE_ENABLED} />
             </>
         },
@@ -56,7 +56,7 @@ fn switch(routes: Route) -> Html {
             webtransport_enabled,
         } => html! {
             <>
-                <TopBar/>
+                <TopBar room_id={id.clone()}/>
                 <AttendantsComponent email={email} id={id} webtransport_enabled={truthy(Some(&webtransport_enabled))} e2ee_enabled={*E2EE_ENABLED} />
             </>
         },

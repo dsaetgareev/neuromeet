@@ -29,9 +29,9 @@ pub fn home() -> Html {
     html! {
         <div class="flex justify-center items-center content-center flex-col m-auto">
             <div class="flex items-center flex-col">
-                <h1 class="text-xl">{ "videocall-rs" }</h1>
-                <p class="text-xs">{ "Create your videocall by creating a user and meeting id." }</p>
-                <p class="text-xs">{ "Characters allowed: a-z, A-Z, 0-9, and _" }</p>
+                <h1 class="text-xl">{ "Neuromeet" }</h1>
+                <p class="text-xs">{ "Создайте комнату видеоконференции, указав логин и id комнаты." }</p>
+                <p class="text-xs">{ "Допускаются символы: a-z, A-Z, 0-9, и _" }</p>
             </div>
             <form {onsubmit}>
                 <div class="py-4">
@@ -43,6 +43,7 @@ pub fn home() -> Html {
                         ref={username_ref}
                         required={true}
                         pattern="^[a-zA-Z0-9_]*$"
+                        value="Guest"
                     />
                     <input
                         class={TEXT_INPUT_CLASSES}
