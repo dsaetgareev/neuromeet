@@ -4,7 +4,7 @@ members = [
     "actix-api",
     "bot",
     "types",
-    # "videocall-client",
+    "videocall-client",
     "yew-ui",
 ]
 exclude = [

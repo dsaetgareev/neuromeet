@@ -3,15 +3,17 @@
 mod components;
 mod constants;
 mod pages;
+mod utils;
+mod stores;
 
-use constants::{E2EE_ENABLED, LOGIN_URL, WEBTRANSPORT_ENABLED};
+use constants::{E2EE_ENABLED, LOGIN_URL};
 use types::truthy;
 
 use log::info;
 use yew::prelude::*;
 #[macro_use]
 extern crate lazy_static;
-use components::{attendants::AttendantsComponent, matomo::MatomoTracker, top_bar::TopBar};
+use components::{attendants::AttendantsComponent, top_bar::TopBar, middleware::Middleware};
 use enum_display::EnumDisplay;
 use gloo_utils::window;
 use pages::home::Home;
@@ -33,21 +35,21 @@ enum Route {
         id: String,
         webtransport_enabled: String,
     },
+    #[at("/m/:id")]
+    Middleware { id: String },
     #[not_found]
     #[at("/404")]
     NotFound,
 }
 
 fn switch(routes: Route) -> Html {
-    let matomo = MatomoTracker::new();
-    matomo.track_page_view(&routes.to_string(), &routes.to_string());
     match routes {
         Route::Home => html! { <Home /> },
         Route::Login => html! { <Login/> },
         Route::Meeting { email, id } => html! {
             <>
                 <TopBar room_id={id.clone()}/>
-                <AttendantsComponent email={email} id={id} webtransport_enabled={*WEBTRANSPORT_ENABLED} e2ee_enabled={*E2EE_ENABLED} />
+                <AttendantsComponent email={email} id={id} webtransport_enabled={true} e2ee_enabled={*E2EE_ENABLED} />
             </>
         },
         Route::Meeting2 {
@@ -58,6 +60,13 @@ fn switch(routes: Route) -> Html {
             <>
                 <TopBar room_id={id.clone()}/>
                 <AttendantsComponent email={email} id={id} webtransport_enabled={truthy(Some(&webtransport_enabled))} e2ee_enabled={*E2EE_ENABLED} />
+            </>
+        },
+        Route::Middleware {
+            id: _ 
+        } => html! {
+            <>
+                <Middleware />
             </>
         },
         Route::NotFound => html! { <h1>{ "404" }</h1> },

@@ -28,6 +28,9 @@ getrandom = { version = "0.2.10", features = ["js"] }
 wasm-bindgen-futures = "0.4.30"
 enum-display = "0.1.4"
 
+uuid = { version = "1", features = ["v4", "js"] }
+yewdux = "0.10"
+
 [dependencies.web-sys]
 version = "0.3.60"
 features = [

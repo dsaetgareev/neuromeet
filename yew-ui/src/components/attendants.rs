@@ -86,6 +86,7 @@ pub struct AttendantsComponent {
 impl AttendantsComponent {
     fn create_video_call_client(ctx: &Context<Self>) -> VideoCallClient {
         let email = ctx.props().email.clone();
+        // let email = uuid::Uuid::new_v4().to_string();
         let id = ctx.props().id.clone();
         let opts = VideoCallClientOptions {
             userid: email.clone(),
