@@ -158,6 +158,18 @@ impl VideoPeerDecoder {
         }
     }
 
+    // pub fn new_video(canvas_id: &str) -> Self {
+    //     let video = create_video_decoder(canvas_id);
+    //     let decoder = video.video_decoder;
+    //     Self {
+    //         decoder,
+    //         waiting_for_keyframe: true,
+    //         decoded: false,
+    //         _error: error,
+    //         _output: output,
+    //     }
+    // }
+
     fn get_chunk_type(&self, packet: &Arc<MediaPacket>) -> EncodedVideoChunkType {
         EncodedVideoChunkTypeWrapper::from(packet.frame_type.as_str()).0
     }

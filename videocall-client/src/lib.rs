@@ -76,6 +76,8 @@ mod decode;
 mod encode;
 mod media_devices;
 mod wrappers;
+pub mod utils;
+pub mod errors;
 
 pub use client::{VideoCallClient, VideoCallClientOptions};
 pub use encode::{CameraEncoder, MicrophoneEncoder, ScreenEncoder};

@@ -4012,6 +4012,7 @@ dependencies = [
  "protobuf",
  "rand",
  "rsa",
+ "thiserror",
  "types",
  "wasm-bindgen",
  "wasm-bindgen-futures",

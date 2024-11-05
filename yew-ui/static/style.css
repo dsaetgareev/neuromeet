@@ -169,6 +169,7 @@ canvas {
 }
 
 .controls {
+  z-index: 1;
   top: 0;
   left: 0;
   margin-top: 0;

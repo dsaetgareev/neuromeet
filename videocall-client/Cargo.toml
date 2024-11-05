@@ -13,7 +13,7 @@ getrandom = { version = "0.2.10", features = ["js"] }
 gloo = "0.8.0"
 gloo-timers = "0.2.6"
 gloo-utils = "0.1"
-js-sys = "0.3"
+js-sys = "0.3.64"
 log = "0.4.19"
 protobuf = "3.2.0"
 rand = { version = "0.8.5", features = ["std_rng", "small_rng"] }
@@ -25,9 +25,9 @@ yew = { version = "0.21" }
 yew-websocket = "1.21.0"
 yew-webtransport = "0.21.1"
 
-[dependencies.web-sys]
-version = "0.3.60"
-features = [
+thiserror = "1"
+
+web-sys = { version = "0.3.64", features = [
     "AudioTrack",
     "AudioData",
     "AudioEncoder",
@@ -37,9 +37,16 @@ features = [
     "AudioDecoderInit",
     "AudioDecoderConfig",
     "AudioContext",
+    "AudioSampleFormat",
     "BaseAudioContext",
+    "Document",
+    "Element",
     "GainOptions",
     "GainNode",
+    "HtmlElement",
+    "Node", 
+    "Window",
+    "Clipboard",
     "console",
     "CodecState",
     "CanvasRenderingContext2d",
@@ -49,14 +56,19 @@ features = [
     "EncodedVideoChunk",
     "EncodedVideoChunkInit",
     "EncodedVideoChunkType",
+    "HtmlCanvasElement",
+    "HtmlImageElement",
+    "HtmlSelectElement",
+    "LatencyMode",
+    "Navigator",
     "MediaStreamAudioDestinationNode",
     "AudioDestinationNode",
     "AudioContextOptions",
     "AudioDataCopyToOptions",
-    "HtmlCanvasElement",
-    "HtmlImageElement",
-    "Navigator",
     "MediaDevices",
+    "MediaDeviceInfo",
+    "MediaDeviceKind",
+    "MediaTrackConstraints",
     "MediaStream",
     "MediaStreamTrack",
     "MediaTrackSettings",
@@ -64,9 +76,8 @@ features = [
     "MediaStreamTrackProcessorInit",
     "MediaStreamTrackGenerator",
     "MediaStreamTrackGeneratorInit",
-    "WritableStream",
-    "WritableStreamDefaultWriter",
-    "MediaStreamAudioSourceNode",
+    "MediaStreamTrackProcessor",
+    "MediaStreamTrackProcessorInit",
     "HtmlVideoElement",
     "MediaStreamConstraints",
     "ReadableStream",
@@ -75,22 +86,22 @@ features = [
     "VideoEncoder",
     "VideoEncoderInit",
     "VideoEncoderConfig",
-    "VideoEncoderEncodeOptions",
     "VideoFrame",
     "VideoTrack",
     "VideoDecoder",
     "VideoDecoderConfig",
     "VideoDecoderInit",
-    "LatencyMode",
+    "VideoEncoderEncodeOptions",
+    "WritableStream",
+    "WritableStreamDefaultWriter",
+    "MediaStreamAudioSourceNode",
     "HtmlAudioElement",
     "AudioDataInit",
-    "AudioSampleFormat",
     "TransformStream",
-    "MediaDeviceInfo",
-    "MediaDeviceKind",
-    "MediaTrackConstraints",
-    "CanvasRenderingContext2d"
-]
+    "OscillatorNode",
+    "OscillatorType",
+    "AudioParam"
+    ] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.20"

@@ -143,8 +143,8 @@ impl Component for AttendantsComponent {
             client: Self::create_video_call_client(ctx),
             media_device_access: Self::create_media_device_access(ctx),
             share_screen: false,
-            mic_enabled: false,
-            video_enabled: false,
+            mic_enabled: true,
+            video_enabled: true,
             peer_list_open: false,
             error: None,
         }
@@ -230,7 +230,7 @@ impl Component for AttendantsComponent {
         let toggle_peer_list = ctx.link().callback(|_| UserScreenAction::TogglePeerList);
 
         let peers = self.client.sorted_peer_keys();
-        let rows = canvas_generator::generate(
+        let _rows = canvas_generator::generate(
             &self.client,
             peers.iter().take(CANVAS_LIMIT).cloned().collect(),
         );
@@ -239,7 +239,7 @@ impl Component for AttendantsComponent {
             <div id="main-container">
                 <div id="grid-container" style={if self.peer_list_open {"width: 80%;"} else {"width: 100%;"}}>
                     { self.error.as_ref().map(|error| html! { <p>{ error }</p> }) }
-                    { rows }
+                    // { rows }
                     {
                         if USERS_ALLOWED_TO_STREAM.iter().any(|host| host == &email) || USERS_ALLOWED_TO_STREAM.is_empty() {
                             html! {
@@ -281,11 +281,11 @@ impl Component for AttendantsComponent {
                                         html! {<h4>{"Connected"}</h4>}
                                     }}
 
-                                    {if ctx.props().e2ee_enabled {
-                                        html! {<h4>{"End to End Encryption Enabled"}</h4>}
-                                    } else {
-                                        html! {<h4>{"End to End Encryption Disabled"}</h4>}
-                                    }}
+                                    // {if ctx.props().e2ee_enabled {
+                                    //     html! {<h4>{"End to End Encryption Enabled"}</h4>}
+                                    // } else {
+                                    //     html! {<h4>{"End to End Encryption Disabled"}</h4>}
+                                    // }}
                                 </nav>
                             }
                         } else {

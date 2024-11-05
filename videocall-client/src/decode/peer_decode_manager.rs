@@ -1,4 +1,6 @@
 use super::hash_map_with_ordered_keys::HashMapWithOrderedKeys;
+use super::video::Video;
+use super::video_decoder::create_video;
 use log::debug;
 use protobuf::Message;
 use std::{fmt::Display, sync::Arc};
@@ -51,7 +53,7 @@ impl Display for PeerDecodeError {
 #[derive(Debug)]
 pub struct Peer {
     pub audio: AudioPeerDecoder,
-    pub video: VideoPeerDecoder,
+    pub video: Video,
     pub screen: VideoPeerDecoder,
     pub email: String,
     pub video_canvas_id: String,
@@ -83,10 +85,11 @@ impl Peer {
     fn new_decoders(
         video_canvas_id: &str,
         screen_canvas_id: &str,
-    ) -> (AudioPeerDecoder, VideoPeerDecoder, VideoPeerDecoder) {
+    ) -> (AudioPeerDecoder, Video, VideoPeerDecoder) {
         (
             AudioPeerDecoder::new(),
-            VideoPeerDecoder::new(video_canvas_id),
+            // VideoPeerDecoder::new_video(video_canvas_id),
+            create_video(video_canvas_id.to_string()),
             VideoPeerDecoder::new(screen_canvas_id),
         )
     }
@@ -130,7 +133,7 @@ impl Peer {
             MediaType::VIDEO => Ok((
                 media_type,
                 self.video
-                    .decode(&packet)
+                    .decode(packet)
                     .map_err(|_| PeerDecodeError::VideoDecodeError)?,
             )),
             MediaType::AUDIO => Ok((

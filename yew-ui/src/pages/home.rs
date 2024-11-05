@@ -73,7 +73,7 @@ pub fn home() -> Html {
                         ref={username_ref}
                         required={true}
                         pattern="^[a-zA-Z0-9_]*$"
-                        value="Гость"
+                        value="User"
                     />
                 </div>
                 <input type="submit" value="JOIN" class="py-2 px-4 pointer bg-yew-blue rounded-md w-full cursor-pointer" />
