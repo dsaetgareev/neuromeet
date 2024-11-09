@@ -81,4 +81,4 @@ pub mod errors;
 
 pub use client::{VideoCallClient, VideoCallClientOptions};
 pub use encode::{CameraEncoder, MicrophoneEncoder, ScreenEncoder};
-pub use media_devices::{MediaDeviceAccess, MediaDeviceList, SelectableDevices};
+pub use media_devices::{MediaDeviceAccess, MediaDeviceList, SelectableDevices, request_permissions};

@@ -3,7 +3,6 @@ use js_sys::Array;
 use js_sys::JsString;
 use js_sys::Reflect;
 use log::error;
-use std::sync::atomic::Ordering;
 use types::protos::packet_wrapper::PacketWrapper;
 use wasm_bindgen::prelude::Closure;
 use wasm_bindgen::JsCast;
@@ -150,10 +149,10 @@ impl ScreenEncoder {
 
             let poll_screen = async {
                 loop {
-                    if destroy.load(Ordering::Acquire) {
+                    if *destroy.borrow() {
                         return;
                     }
-                    if !enabled.load(Ordering::Acquire) {
+                    if !*enabled.borrow() {
                         return;
                     }
                     match JsFuture::from(screen_reader.read()).await {

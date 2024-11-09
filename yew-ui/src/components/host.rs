@@ -1,5 +1,6 @@
 use gloo_timers::callback::Timeout;
 use log::debug;
+use types::protos::packet_wrapper::PacketWrapper;
 use videocall_client::{CameraEncoder, MicrophoneEncoder, ScreenEncoder, VideoCallClient};
 
 use std::fmt::Debug;
@@ -51,8 +52,8 @@ impl Component for Host {
     fn create(ctx: &Context<Self>) -> Self {
         let client = &ctx.props().client;
         Self {
-            camera: CameraEncoder::new(client.clone(), VIDEO_ELEMENT_ID),
-            microphone: MicrophoneEncoder::new(client.clone()),
+            camera: CameraEncoder::new( VIDEO_ELEMENT_ID),
+            microphone: MicrophoneEncoder::new(),
             screen: ScreenEncoder::new(client.clone()),
             share_screen: ctx.props().share_screen,
             mic_enabled: ctx.props().mic_enabled,
@@ -108,7 +109,14 @@ impl Component for Host {
                 if !should_enable {
                     return true;
                 }
-                self.microphone.start();
+                let client = &ctx.props().client;
+                let client = client.clone();
+                let userid = client.userid().clone();
+                let aes = client.aes();
+                let on_audio = move |chunk: PacketWrapper| {
+                    client.send_packet(chunk);                        
+                };              
+                self.microphone.start(on_audio, userid, aes);
                 true
             }
             Msg::DisableMicrophone => {
@@ -119,7 +127,14 @@ impl Component for Host {
                 if !should_enable {
                     return true;
                 }
-                self.camera.start();
+                let client = &ctx.props().client;
+                let client = client.clone();
+                let userid = client.userid().clone();
+                let aes = client.aes();
+                let on_frame = move |packet: PacketWrapper| {
+                    client.send_packet(packet);
+                };
+                self.camera.start(on_frame, userid, aes);
                 true
             }
             Msg::DisableVideo => {

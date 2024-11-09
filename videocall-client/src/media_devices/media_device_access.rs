@@ -8,6 +8,7 @@ use yew::prelude::Callback;
 
 /// [MediaDeviceAccess] is a utility to request the user's permission to access the microphone and
 /// camera.
+#[derive(Clone, Debug)]
 pub struct MediaDeviceAccess {
     granted: Arc<AtomicBool>,
 
@@ -16,6 +17,17 @@ pub struct MediaDeviceAccess {
 
     // Callback that is called when the user fails to grant access permission
     pub on_denied: Callback<()>,
+}
+
+impl PartialEq for MediaDeviceAccess {
+    fn ne(&self, other: &Self) -> bool {
+        !self.eq(other)
+    }
+    
+    fn eq(&self, other: &Self) -> bool {
+        self.granted.load(Ordering::SeqCst) == other.granted.load(Ordering::SeqCst) &&
+        self.on_granted == other.on_granted && self.on_denied == other.on_denied
+    }
 }
 
 #[allow(clippy::new_without_default)]
@@ -82,4 +94,23 @@ impl MediaDeviceAccess {
 
         Ok(())
     }
+}
+
+pub async fn request_permissions() -> anyhow::Result<(), JsValue> {
+    let navigator = window().navigator();
+    let media_devices = navigator.media_devices()?;
+
+    let mut constraints = MediaStreamConstraints::new();
+
+    // Request access to the microphone
+    constraints.audio(&JsValue::from_bool(true));
+
+    // Request access to the camera
+    constraints.video(&JsValue::from_bool(true));
+
+    let promise = media_devices.get_user_media_with_constraints(&constraints)?;
+
+    JsFuture::from(promise).await?;
+
+    Ok(())
 }

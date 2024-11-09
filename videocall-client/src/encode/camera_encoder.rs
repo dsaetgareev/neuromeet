@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use gloo_utils::window;
 use js_sys::Array;
 use js_sys::Boolean;
@@ -5,7 +7,6 @@ use js_sys::JsString;
 use js_sys::Reflect;
 use log::debug;
 use log::error;
-use std::sync::atomic::Ordering;
 use types::protos::packet_wrapper::PacketWrapper;
 use wasm_bindgen::prelude::Closure;
 use wasm_bindgen::JsCast;
@@ -33,6 +34,7 @@ use super::transform::transform_video_chunk;
 use crate::constants::VIDEO_CODEC;
 use crate::constants::VIDEO_HEIGHT;
 use crate::constants::VIDEO_WIDTH;
+use crate::crypto::aes::Aes128State;
 
 /// [CameraEncoder] encodes the video from a camera and sends it through a [`VideoCallClient`](crate::VideoCallClient) connection.
 ///
@@ -43,8 +45,8 @@ use crate::constants::VIDEO_WIDTH;
 /// * [MicrophoneEncoder](crate::MicrophoneEncoder)
 /// * [ScreenEncoder](crate::ScreenEncoder)
 ///
+#[derive(Clone, PartialEq)]
 pub struct CameraEncoder {
-    client: VideoCallClient,
     video_elem_id: String,
     state: EncoderState,
 }
@@ -58,9 +60,8 @@ impl CameraEncoder {
     ///
     /// The encoder is created in a disabled state, [`encoder.set_enabled(true)`](Self::set_enabled) must be called before it can start encoding.
     /// The encoder is created without a camera selected, [`encoder.select(device_id)`](Self::select) must be called before it can start encoding.
-    pub fn new(client: VideoCallClient, video_elem_id: &str) -> Self {
+    pub fn new(video_elem_id: &str) -> Self {
         Self {
-            client,
             video_elem_id: video_elem_id.to_string(),
             state: EncoderState::new(),
         }
@@ -89,6 +90,10 @@ impl CameraEncoder {
         self.state.select(device_id)
     }
 
+    pub fn get_enabled(&self) -> bool {
+        self.state.is_enabled()
+    }
+
     /// Stops encoding after it has been started.
     pub fn stop(&mut self) {
         self.state.stop()
@@ -98,13 +103,17 @@ impl CameraEncoder {
     ///
     /// This will not do anything if [`encoder.set_enabled(true)`](Self::set_enabled) has not been
     /// called, or if [`encoder.select(device_id)`](Self::select) has not been called.
-    pub fn start(&mut self) {
+    pub fn start(
+        &mut self,
+        on_frame: impl Fn(PacketWrapper) + 'static,
+        user_id: String,
+        aes: Rc<Aes128State>
+    ) {
         // 1. Query the first device with a camera and a mic attached.
         // 2. setup WebCodecs, in particular
         // 3. send encoded video frames and raw audio to the server.
-        let client = self.client.clone();
-        let userid = client.userid().clone();
-        let aes = client.aes();
+        let userid = user_id;
+        let aes = aes;
         let video_elem_id = self.video_elem_id.clone();
         let EncoderState {
             destroy,
@@ -115,6 +124,7 @@ impl CameraEncoder {
         let video_output_handler = {
             let mut buffer: [u8; 100000] = [0; 100000];
             let mut sequence_number = 0;
+            let on_frame = on_frame;
             Box::new(move |chunk: JsValue| {
                 let chunk = web_sys::EncodedVideoChunk::from(chunk);
                 let packet: PacketWrapper = transform_video_chunk(
@@ -124,7 +134,7 @@ impl CameraEncoder {
                     &userid,
                     aes.clone(),
                 );
-                client.send_packet(packet);
+                on_frame(packet);
                 sequence_number += 1;
             })
         };
@@ -211,16 +221,150 @@ impl CameraEncoder {
             let mut video_frame_counter = 0;
             let poll_video = async {
                 loop {
-                    if !enabled.load(Ordering::Acquire)
-                        || destroy.load(Ordering::Acquire)
-                        || switching.load(Ordering::Acquire)
+                    if (!*enabled.borrow())
+                        || *destroy.borrow()
+                        || *switching.borrow()
                     {
                         video_track
                             .clone()
                             .unchecked_into::<MediaStreamTrack>()
                             .stop();
                         video_encoder.close();
-                        switching.store(false, Ordering::Release);
+                        *switching.as_ref().borrow_mut() = false;
+                        return;
+                    }
+                    match JsFuture::from(video_reader.read()).await {
+                        Ok(js_frame) => {
+                            let video_frame = Reflect::get(&js_frame, &JsString::from("value"))
+                                .unwrap()
+                                .unchecked_into::<VideoFrame>();
+                            let mut opts = VideoEncoderEncodeOptions::new();
+                            video_frame_counter = (video_frame_counter + 1) % 50;
+                            opts.key_frame(video_frame_counter == 0);
+                            video_encoder.encode_with_options(&video_frame, &opts);
+                            video_frame.close();
+                        }
+                        Err(e) => {
+                            error!("error {:?}", e);
+                        }
+                    }
+                }
+            };
+            poll_video.await;
+            debug!("Killing video streamer");
+        });
+    }
+
+    pub fn run(
+        &mut self,
+    ) {
+        // 1. Query the first device with a camera and a mic attached.
+        // 2. setup WebCodecs, in particular
+        // 3. send encoded video frames and raw audio to the server.
+        let video_elem_id = self.video_elem_id.clone();
+        let EncoderState {
+            destroy,
+            enabled,
+            switching,
+            ..
+        } = self.state.clone();
+        let video_output_handler = {
+            Box::new(move |chunk: JsValue| {
+            })
+        };
+        let device_id = if let Some(vid) = &self.state.selected {
+            vid.to_string()
+        } else {
+            return;
+        };
+        wasm_bindgen_futures::spawn_local(async move {
+            let navigator = window().navigator();
+            let video_element = window()
+                .document()
+                .unwrap()
+                .get_element_by_id(&video_elem_id)
+                .unwrap()
+                .unchecked_into::<HtmlVideoElement>();
+
+            let media_devices = navigator.media_devices().unwrap();
+            let mut constraints = MediaStreamConstraints::new();
+            let mut media_info = web_sys::MediaTrackConstraints::new();
+            media_info.device_id(&device_id.into());
+
+            constraints.video(&media_info.into());
+            constraints.audio(&Boolean::from(false));
+
+            let devices_query = media_devices
+                .get_user_media_with_constraints(&constraints)
+                .unwrap();
+            let device = JsFuture::from(devices_query)
+                .await
+                .unwrap()
+                .unchecked_into::<MediaStream>();
+            video_element.set_src_object(Some(&device));
+            video_element.set_muted(true);
+
+            let video_track = Box::new(
+                device
+                    .get_video_tracks()
+                    .find(&mut |_: JsValue, _: u32, _: Array| true)
+                    .unchecked_into::<VideoTrack>(),
+            );
+
+            // Setup video encoder
+
+            let video_error_handler = Closure::wrap(Box::new(move |e: JsValue| {
+                error!("error_handler error {:?}", e);
+            }) as Box<dyn FnMut(JsValue)>);
+
+            let video_output_handler =
+                Closure::wrap(video_output_handler as Box<dyn FnMut(JsValue)>);
+
+            let video_encoder_init = VideoEncoderInit::new(
+                video_error_handler.as_ref().unchecked_ref(),
+                video_output_handler.as_ref().unchecked_ref(),
+            );
+
+            let video_encoder = Box::new(VideoEncoder::new(&video_encoder_init).unwrap());
+
+            let video_settings = &mut video_track
+                .clone()
+                .unchecked_into::<MediaStreamTrack>()
+                .get_settings();
+            video_settings.width(VIDEO_WIDTH);
+            video_settings.height(VIDEO_HEIGHT);
+
+            let mut video_encoder_config =
+                VideoEncoderConfig::new(VIDEO_CODEC, VIDEO_HEIGHT as u32, VIDEO_WIDTH as u32);
+
+            video_encoder_config.bitrate(100_000f64);
+            video_encoder_config.latency_mode(LatencyMode::Realtime);
+            video_encoder.configure(&video_encoder_config);
+
+            let video_processor =
+                MediaStreamTrackProcessor::new(&MediaStreamTrackProcessorInit::new(
+                    &video_track.clone().unchecked_into::<MediaStreamTrack>(),
+                ))
+                .unwrap();
+            let video_reader = video_processor
+                .readable()
+                .get_reader()
+                .unchecked_into::<ReadableStreamDefaultReader>();
+
+            // Start encoding video and audio.
+            let mut video_frame_counter = 0;
+            let poll_video = async {
+                loop {
+                    if (!*enabled.borrow())
+                        || *destroy.borrow()
+                        || *switching.borrow()
+                    {
+                        video_track
+                            .clone()
+                            .unchecked_into::<MediaStreamTrack>()
+                            .stop();
+                        video_encoder.close();
+                        *switching.as_ref().borrow_mut() = false;
                         return;
                     }
                     match JsFuture::from(video_reader.read()).await {

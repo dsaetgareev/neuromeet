@@ -1,5 +1,6 @@
 use crate::components::{canvas_generator, peer_list::PeerList};
-use crate::constants::{CANVAS_LIMIT, USERS_ALLOWED_TO_STREAM, WEBTRANSPORT_HOST};
+use crate::constants::{CANVAS_LIMIT, USERS_ALLOWED_TO_STREAM, VIDEO_ELEMENT_ID, WEBTRANSPORT_HOST};
+use crate::stores::media_store::{MediaMsg, MediaStore};
 use crate::{components::host::Host, constants::ACTIX_WEBSOCKET};
 use log::{error, warn};
 use types::protos::media_packet::media_packet::MediaType;
@@ -8,6 +9,8 @@ use wasm_bindgen::JsValue;
 use web_sys::*;
 use yew::prelude::*;
 use yew::{html, Component, Context, Html};
+use yewdux::use_store;
+use crate::components::{Devices, VideoButton};
 
 #[derive(Debug)]
 pub enum WsAction {
@@ -92,8 +95,8 @@ impl AttendantsComponent {
             userid: email.clone(),
             websocket_url: format!("{ACTIX_WEBSOCKET}/{email}/{id}"),
             webtransport_url: format!("{WEBTRANSPORT_HOST}/{email}/{id}"),
-            enable_e2ee: ctx.props().e2ee_enabled,
-            enable_webtransport: ctx.props().webtransport_enabled,
+            enable_e2ee: false,
+            enable_webtransport: true,
             on_connected: {
                 let link = ctx.link().clone();
                 Callback::from(move |_| link.send_message(Msg::from(WsAction::Connected)))
@@ -300,5 +303,47 @@ impl Component for AttendantsComponent {
                 </div>
             </div>
         }
+    }
+}
+
+#[function_component(AttendantsFunc)]
+pub fn attendats_func() -> Html {
+
+    let (media_state, media_dispatch) = use_store::<MediaStore>();
+    let camera_enabled = use_state(|| media_state.get_camera().get_enabled());
+    let mic_enabled = use_state(|| media_state.get_mic().get_enabled());
+    let ws_client = media_state.get_client();
+    let user_name = ws_client.userid();
+
+    use_effect({
+        let media_dispatch = media_dispatch.clone();
+        move || {
+            media_dispatch.apply(MediaMsg::Connect);
+        }
+    });
+    html! {
+            <div id="main-container">
+                <div id="grid-container">
+                    <video autoplay=true id={VIDEO_ELEMENT_ID}></video>
+                </div>
+                <nav class="host">
+                    // <video class="self-camera" autoplay=true id={VIDEO_ELEMENT_ID}></video>
+                    <Devices />
+                    <VideoButton />
+                    <h4 class="floating-name">{(*user_name).clone()}</h4>
+
+                    {if !media_state.is_connected() {
+                        html! {<h4>{"Connecting"}</h4>}
+                    } else {
+                        html! {<h4>{"Connected"}</h4>}
+                    }}
+
+                    // {if ctx.props().e2ee_enabled {
+                    //     html! {<h4>{"End to End Encryption Enabled"}</h4>}
+                    // } else {
+                    //     html! {<h4>{"End to End Encryption Disabled"}</h4>}
+                    // }}
+                </nav>
+            </div>
     }
 }

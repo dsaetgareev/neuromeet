@@ -6,9 +6,11 @@ pub const LOGIN_URL: &str = "http://localhost:8080/login";
 // pub const ACTIX_WEBSOCKET: &str = concat!(std::env!("ACTIX_UI_BACKEND_URL"), "/lobby");
 pub const ACTIX_WEBSOCKET: &str =  "ws://localhost:8080/lobby";
 // pub const WEBTRANSPORT_HOST: &str = concat!(std::env!("WEBTRANSPORT_HOST"), "/lobby");
-pub const WEBTRANSPORT_HOST: &str =  "https://live-lesson.ru:4433/lobby";
-// pub const WEBTRANSPORT_HOST: &str =  "https://127.0.0.1:4433/lobby";
+// pub const WEBTRANSPORT_HOST: &str =  "https://live-lesson.ru:4433/lobby";
+pub const WEBTRANSPORT_HOST: &str =  "https://127.0.0.1:4433/lobby";
 pub const CANVAS_LIMIT: usize = 20;
+
+pub const VIDEO_ELEMENT_ID: &str = "webcam";
 
 pub fn split_users(s: Option<&str>) -> Vec<String> {
     if let Some(s) = s {

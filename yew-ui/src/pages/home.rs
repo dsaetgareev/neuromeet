@@ -1,19 +1,66 @@
+use videocall_client::request_permissions;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
+use yew::suspense::use_future;
 use yew_router::prelude::*;
 use yewdux::prelude::*;
 
+use crate::components::device_selector::Devices;
+use crate::components::VideoButton;
 use crate::stores::app_store::AppMsg;
 use crate::stores::app_store::AppStore;
+use crate::stores::media_store::MediaMsg;
+use crate::stores::media_store::MediaStore;
 use crate::utils::dom::get_url_pathname;
 use crate::Route;
+use crate::components::device_selector::DeviceSelector;
 
 const TEXT_INPUT_CLASSES: &str = "rounded-md mx-2 p-2 text-black required:ring-2 required:ring-red-500 required:valid:ring-2 required:valid:ring-green-500";
+const VIDEO_ELEMENT_ID: &str = "webcam";
 
 #[function_component(Home)]
 pub fn home() -> Html {
     let (_state, dispatch) = use_store::<AppStore>();
+    let (media_state, media_dispatch) = use_store::<MediaStore>();
     let navigator = use_navigator().unwrap();
+
+    let future = use_future(|| async {
+        match request_permissions().await {
+            Ok(res) => {
+                html!{
+                    <>
+                        <Devices />
+                        <div>
+                            <video class="self-camera" autoplay=true id={VIDEO_ELEMENT_ID}></video>
+                            <VideoButton />
+                        </div>      
+                    </>
+                }
+            }
+            Err(e) => {
+                // Обработка ошибки
+                html!(
+                    <>
+                        { format!("{:?}", e.to_owned()) }
+                        <p> { "Дайте разрешение браузеру использовать медиа ресурсы (камера, микрофон)" } </p>
+                    </>
+                )
+            } 
+        }
+    });
+    let devices = match future {
+        Ok(res) => {
+            res.to_owned()
+        }
+        Err(e) => {
+            // Обработка ошибки
+            // log::error!("1111111111111: {:?}", e.to_owned());
+            html! {
+                <></>
+            }
+        } 
+        
+    };
 
     let username_ref = use_node_ref();
     let session_id = use_state(|| {
@@ -45,11 +92,13 @@ pub fn home() -> Html {
     let onsubmit = {
         let username_ref = username_ref.clone();
         let dispatch = dispatch.clone();
+        let media_dispatch = media_dispatch.clone();
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
             let username = username_ref.cast::<HtmlInputElement>().unwrap().value();
             let meeting_id = session_id.to_string();
-            dispatch.apply(AppMsg::SetName(username.clone()));
+            media_dispatch.apply(MediaMsg::ClientInit(username.clone(), meeting_id.clone()));
+            dispatch.apply(AppMsg::SetName(username));
             dispatch.apply(AppMsg::SetId(meeting_id.clone()));
             navigator.push(&Route::Middleware {
                 id: meeting_id,
@@ -76,8 +125,9 @@ pub fn home() -> Html {
                         value="User"
                     />
                 </div>
-                <input type="submit" value="JOIN" class="py-2 px-4 pointer bg-yew-blue rounded-md w-full cursor-pointer" />
+                <input type="submit" value="Подключиться" class="py-2 px-4 pointer bg-yew-blue rounded-md w-full cursor-pointer" />
             </form>
+            { devices }
         </div>
     }
 }

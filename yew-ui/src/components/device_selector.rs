@@ -2,6 +2,9 @@ use videocall_client::MediaDeviceList;
 use wasm_bindgen::JsCast;
 use web_sys::HtmlSelectElement;
 use yew::prelude::*;
+use yewdux::use_store;
+
+use crate::stores::media_store::{MediaMsg, MediaStore};
 
 pub struct DeviceSelector {
     media_devices: MediaDeviceList,
@@ -111,5 +114,27 @@ impl Component for DeviceSelector {
                 </select>
             </div>
         }
+    }
+}
+
+#[function_component(Devices)]
+pub fn devices() -> Html {
+    let (_state, dispatch) = use_store::<MediaStore>();
+    let mic_callback: Callback<String> = {
+        let dispatch = dispatch.clone();
+        Callback::from(move |audio| {
+            dispatch.apply(MediaMsg::AudioDeviceChanged(audio))
+        })
+    };
+    let cam_callback = {
+        let dispatch = dispatch.clone();
+        Callback::from(move |video| {
+            dispatch.apply(MediaMsg::VideoDeviceChanged(video));
+        })
+    };
+    html! {
+        <>
+            <DeviceSelector on_microphone_select={mic_callback} on_camera_select={cam_callback}/>
+        </>
     }
 }

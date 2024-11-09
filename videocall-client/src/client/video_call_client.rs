@@ -215,7 +215,7 @@ impl VideoCallClient {
         peer_decode_manager
     }
 
-    pub(crate) fn send_packet(&self, media: PacketWrapper) {
+    pub fn send_packet(&self, media: PacketWrapper) {
         match self.inner.try_borrow() {
             Ok(inner) => inner.send_packet(media),
             Err(_) => {
@@ -258,7 +258,7 @@ impl VideoCallClient {
         false
     }
 
-    pub(crate) fn aes(&self) -> Rc<Aes128State> {
+    pub fn aes(&self) -> Rc<Aes128State> {
         self.aes.clone()
     }
 

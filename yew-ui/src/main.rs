@@ -13,7 +13,7 @@ use log::info;
 use yew::prelude::*;
 #[macro_use]
 extern crate lazy_static;
-use components::{attendants::AttendantsComponent, top_bar::TopBar, middleware::Middleware};
+use components::{attendants::AttendantsComponent, middleware::Middleware, top_bar::TopBar, AttendantsFunc};
 use enum_display::EnumDisplay;
 use gloo_utils::window;
 use pages::home::Home;
@@ -49,7 +49,8 @@ fn switch(routes: Route) -> Html {
         Route::Meeting { email, id } => html! {
             <>
                 <TopBar room_id={id.clone()}/>
-                <AttendantsComponent email={email} id={id} webtransport_enabled={true} e2ee_enabled={*E2EE_ENABLED} />
+                // <AttendantsComponent email={email} id={id} webtransport_enabled={true} e2ee_enabled={*E2EE_ENABLED} />
+                <AttendantsFunc />
             </>
         },
         Route::Meeting2 {
@@ -59,7 +60,8 @@ fn switch(routes: Route) -> Html {
         } => html! {
             <>
                 <TopBar room_id={id.clone()}/>
-                <AttendantsComponent email={email} id={id} webtransport_enabled={truthy(Some(&webtransport_enabled))} e2ee_enabled={*E2EE_ENABLED} />
+                <AttendantsFunc />
+                // <AttendantsComponent email={email} id={id} webtransport_enabled={truthy(Some(&webtransport_enabled))} e2ee_enabled={*E2EE_ENABLED} />
             </>
         },
         Route::Middleware {
