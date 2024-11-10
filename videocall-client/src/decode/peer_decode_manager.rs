@@ -3,6 +3,8 @@ use super::video::Video;
 use super::video_decoder::create_video;
 use log::debug;
 use protobuf::Message;
+use web_sys::{HtmlVideoElement, MediaStream};
+use std::collections::HashMap;
 use std::{fmt::Display, sync::Arc};
 use types::protos::media_packet::MediaPacket;
 use types::protos::packet_wrapper::packet_wrapper::PacketType;
@@ -88,7 +90,6 @@ impl Peer {
     ) -> (AudioPeerDecoder, Video, VideoPeerDecoder) {
         (
             AudioPeerDecoder::new(),
-            // VideoPeerDecoder::new_video(video_canvas_id),
             create_video(video_canvas_id.to_string()),
             VideoPeerDecoder::new(screen_canvas_id),
         )
@@ -201,6 +202,15 @@ impl PeerDecodeManager {
 
     pub fn sorted_keys(&self) -> &Vec<String> {
         self.connected_peers.ordered_keys()
+    }
+
+    pub fn get_peer_videos(&self) -> HashMap<String, MediaStream> {
+        let streams = self.connected_peers
+            .map()
+            .iter()
+            .map(|(key, peer)| (key.clone(), peer.video.media_stream.clone()))
+            .collect();
+        streams
     }
 
     pub fn get(&self, key: &String) -> Option<&Peer> {

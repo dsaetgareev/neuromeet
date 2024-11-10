@@ -75,6 +75,10 @@ impl<K: Ord + Hash + Clone, V> HashMapWithOrderedKeys<K, V> {
         &self.keys
     }
 
+    pub fn map(&self) -> &HashMap<K, V> {
+        &self.map
+    }
+
     pub fn remove_if<F>(&mut self, predicate: F)
     where
         F: Fn(&mut V) -> bool,

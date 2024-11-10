@@ -7,7 +7,9 @@ use log::{debug, error, info};
 use protobuf::Message;
 use rsa::pkcs8::{DecodePublicKey, EncodePublicKey};
 use rsa::RsaPublicKey;
+use web_sys::MediaStream;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use types::protos::aes_packet::AesPacket;
 use types::protos::media_packet::media_packet::MediaType;
@@ -242,6 +244,13 @@ impl VideoCallClient {
         }
     }
 
+    pub fn get_peer_videos(&self) -> HashMap<String, MediaStream> {
+        match self.inner.try_borrow() {
+            Ok(inner) => inner.peer_decode_manager.get_peer_videos(),
+            Err(_) => HashMap::<String, MediaStream>::new(),
+        }
+    }
+
     /// Hacky function that returns true if the given peer has yet to send a frame of screen share.
     ///
     /// No reason for this function to exist, it should be deducible from the
@@ -256,6 +265,15 @@ impl VideoCallClient {
             }
         }
         false
+    }
+
+    pub fn get_media_stream_by_key(&self, key: &String) -> Option<MediaStream> {
+        if let Ok(inner) = self.inner.try_borrow() {
+            if let Some(peer) = inner.peer_decode_manager.get(key) {
+                return Some(peer.video.media_stream.clone());
+            }
+        }
+        None
     }
 
     pub fn aes(&self) -> Rc<Aes128State> {

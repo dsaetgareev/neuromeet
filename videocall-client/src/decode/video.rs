@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, collections::BTreeMap, sync::Arc};
 use types::protos::media_packet::MediaPacket;
-use web_sys::{ VideoDecoder, VideoDecoderConfig, CodecState, EncodedVideoChunk, EncodedVideoChunkInit, EncodedVideoChunkType };
+use web_sys::{ CodecState, EncodedVideoChunk, EncodedVideoChunkInit, EncodedVideoChunkType, HtmlVideoElement, MediaStream, VideoDecoder, VideoDecoderConfig };
 use js_sys::Uint8Array;
 use crate::{decode::video_decoder::create_video_decoder, wrappers::EncodedVideoChunkTypeWrapper};
 
@@ -16,6 +16,7 @@ pub struct Video {
     pub sequence: Option<u64>,
     pub require_key: bool,
     pub video_elem_id: String, 
+    pub media_stream: MediaStream
 }
 
 impl Video {
@@ -23,6 +24,7 @@ impl Video {
         video_decoder: VideoDecoder,
         video_config: VideoDecoderConfig,
         video_elem_id: String,
+        media_stream: MediaStream
     ) -> Self {
         Self {
             cache: BTreeMap::new(),
@@ -30,7 +32,8 @@ impl Video {
             video_config,
             sequence: None,
             require_key: false,
-            video_elem_id
+            video_elem_id,
+            media_stream,
         }
     }
 
@@ -90,7 +93,7 @@ impl Video {
                 log::error!("video decoder closed");
                 self.require_key = true;
 
-                let (video_decoder, video_config) = create_video_decoder(&self.video_elem_id);     
+                let (video_decoder, video_config, _media_stream) = create_video_decoder(&self.video_elem_id);     
                 self.video_decoder = video_decoder;
                 self.video_config = video_config;
                 self.video_decoder.configure(&self.video_config);
@@ -147,23 +150,3 @@ pub fn get_encoded_video_chunk_from_data(video_data: Arc<MediaPacket>) -> Encode
     ).unwrap();
     encoded_video_chunk
 }
-
-// pub fn get_video_data(packet: Arc<VideoPacket>) -> VideoPacket{
-//     let chunk_type = EncodedVideoChunkTypeWrapper::from(packet.chunk_type.as_str()).0;
-//     let video_data = Uint8Array::new_with_length(packet.data.len().try_into().unwrap());
-//     video_data.copy_from(&packet.data);
-//     let video_chunk = EncodedVideoChunkInit::new(&video_data, packet.timestamp, chunk_type);
-//     let chunk = EncodedVideoChunk::new(&video_chunk).unwrap();
-    
-//     let mut video_vector = vec![0u8; chunk.byte_length() as usize];
-//     let video_message = video_vector.as_mut();
-//     chunk.copy_to_with_u8_array(video_message);
-//     let data = VideoPacket {
-//         data: video_message.to_vec(),
-//         chunk_type: packet.chunk_type.clone(),
-//         timestamp: packet.timestamp,
-//         duration: packet.duration,
-//         sequence_number: packet.sequence_number
-//     };
-//     data
-// }

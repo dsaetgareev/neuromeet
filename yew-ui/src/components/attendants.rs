@@ -314,6 +314,18 @@ pub fn attendats_func() -> Html {
     let mic_enabled = use_state(|| media_state.get_mic().get_enabled());
     let ws_client = media_state.get_client();
     let user_name = ws_client.userid();
+    let peers = media_state.get_client().sorted_peer_keys();
+    let rows = || {
+        
+        peers.iter()
+        .map(|key| {
+            html! {
+                <>
+                    <VideoComponent key_id={ key.clone() } />
+                </>
+            }
+        }).collect::<Html>()
+    };
 
     use_effect({
         let media_dispatch = media_dispatch.clone();
@@ -323,8 +335,11 @@ pub fn attendats_func() -> Html {
     });
     html! {
             <div id="main-container">
-                <div id="grid-container">
-                    <video autoplay=true id={VIDEO_ELEMENT_ID}></video>
+                <div id="grid-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-6xl">
+                    <div class="bg-gray-700 shadow-2xl rounded-xl p-4 flex flex-col items-center">
+                        <video class="rounded-lg w-32 h-32 mb-2" autoplay=true id={VIDEO_ELEMENT_ID}></video>
+                    </div>
+                    { rows() }
                 </div>
                 <nav class="host">
                     // <video class="self-camera" autoplay=true id={VIDEO_ELEMENT_ID}></video>
@@ -345,5 +360,38 @@ pub fn attendats_func() -> Html {
                     // }}
                 </nav>
             </div>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct ItemPorps {
+    pub key_id: String,
+}
+
+
+#[function_component(VideoComponent)]
+pub fn video_component(props: &ItemPorps) -> Html {
+    let key = &props.key_id;
+    log::info!("key {}", key);
+    
+    let (media_state, media_dispatch) = use_store::<MediaStore>();
+    let video_ref = use_node_ref();
+    use_effect({
+        let video_ref = video_ref.clone();
+        let media_stream = media_state.get_client().get_media_stream_by_key(key);
+        move || {
+            if let Some(video_element) = video_ref.cast::<HtmlVideoElement>() {
+                if let Some(stream) = media_stream {
+                    video_element.set_src_object(Some(&stream));
+                }
+            }
+        }
+    });
+
+    html! {
+        <div class="bg-gray-700 shadow-2xl rounded-xl p-4 flex flex-col items-center">
+            <p>{ key.clone() }</p>
+            <video class="rounded-lg w-32 h-32 mb-2" ref={video_ref} autoplay=true />
+        </div> 
     }
 }

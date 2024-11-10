@@ -12,6 +12,7 @@ const VIDEO_ELEMENT_ID: &str = "webcam";
 
 #[derive(Clone, PartialEq, Store)]
 pub struct MediaStore {
+    rerender: bool,
     client: Option<VideoCallClient>,
     camera: CameraEncoder,
     microphone: MicrophoneEncoder,
@@ -23,6 +24,7 @@ pub struct MediaStore {
 impl Default for MediaStore {
     fn default() -> Self {
         Self {
+            rerender: Default::default(),
             client: None,
             camera: CameraEncoder::new(VIDEO_ELEMENT_ID),
             microphone: MicrophoneEncoder::new(),
@@ -34,6 +36,10 @@ impl Default for MediaStore {
 }
 
 impl MediaStore {
+    pub fn rerender(&mut self) {
+        let rerender = self.rerender;
+        self.rerender = !rerender;
+    }
     pub fn get_client(&self) -> &VideoCallClient {
         &self.client.as_ref().unwrap()
     }
@@ -88,15 +94,15 @@ impl MediaStore {
                 })
             },
             on_peer_added: {
-                // let link = ctx.link().clone();
-                Callback::from(move |email| {
-                    // link.send_message(Msg::OnPeerAdded(email)
+                let dispatch = dispatch.clone();
+                Callback::from(move |_| {
+                    log::info!("rerererererer");
+                    dispatch.apply(MediaMsg::Rerender);
                 })
             },
             on_peer_first_frame: {
-                // let link = ctx.link().clone();
                 Callback::from(move |(email, media_type)| {
-                    // link.send_message(Msg::OnFirstFrame((email, media_type)))
+
                 })
             },
             get_peer_video_canvas_id: Callback::from(|email| email),
@@ -123,6 +129,7 @@ impl MediaStore {
 }
 
 pub enum MediaMsg {
+    Rerender,
     Connect,
     SetConnected(bool),
     MediaDeviceAccessRequest,
@@ -143,6 +150,9 @@ impl Reducer<MediaStore> for MediaMsg {
         let state = Rc::make_mut(&mut store); 
         let dispatch = Dispatch::<MediaStore>::global();
         match self {
+            MediaMsg::Rerender => {
+                state.rerender();
+            },
             MediaMsg::Connect => {
                 if !state.get_mut_client().is_connected() {
                     match state.get_mut_client().connect() {

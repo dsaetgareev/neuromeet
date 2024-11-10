@@ -15,7 +15,7 @@ use super::video::Video;
 
 
 
-pub fn create_video_decoder(video_elem_id: &str) -> (VideoDecoder, VideoDecoderConfig) {
+pub fn create_video_decoder(video_elem_id: &str) -> (VideoDecoder, VideoDecoderConfig, MediaStream) {
     let error_id = video_elem_id.to_string();
     let error_video = Closure::wrap(Box::new(move |e: JsValue| {
         error!("{:?}", e);
@@ -27,15 +27,6 @@ pub fn create_video_decoder(video_elem_id: &str) -> (VideoDecoder, VideoDecoderC
     let js_tracks = Array::new();
     js_tracks.push(&video_stream_generator);
     let media_stream = MediaStream::new_with_tracks(&js_tracks).unwrap();
-    let video_element = create_video_element(video_elem_id);
-    video_element.set_autoplay(true);
-
-    match get_element("grid-container") {
-        Some(element) => {
-            let _ = element.append_child(&video_element);
-        }
-        None => todo!(),
-    }
 
     let output = Closure::wrap(Box::new(move |original_chunk: JsValue| {
         let chunk = Box::new(original_chunk);
@@ -60,9 +51,6 @@ pub fn create_video_decoder(video_elem_id: &str) -> (VideoDecoder, VideoDecoderC
         }        
     }) as Box<dyn FnMut(JsValue)>);
 
-    
-    video_element.set_src_object(Some(&media_stream));
-
     let local_video_decoder = VideoDecoder::new(
         &VideoDecoderInit::new(error_video.as_ref().unchecked_ref(), output.as_ref().unchecked_ref())
     ).unwrap();
@@ -70,10 +58,10 @@ pub fn create_video_decoder(video_elem_id: &str) -> (VideoDecoder, VideoDecoderC
     output.forget();
     let video_config = VideoDecoderConfig::new(&VIDEO_CODEC); 
     local_video_decoder.configure(&video_config);
-    (local_video_decoder, video_config)
+    (local_video_decoder, video_config, media_stream)
 }
 
 pub fn create_video(video_elem_id: String) -> Video {
-    let (video_decoder, video_config) = create_video_decoder(&video_elem_id);
-    Video::new(video_decoder, video_config, video_elem_id)
+    let (video_decoder, video_config, media_stream) = create_video_decoder(&video_elem_id);
+    Video::new(video_decoder, video_config, video_elem_id, media_stream)
 }

@@ -17,13 +17,13 @@ pub fn get_document() -> web_sys::Document{
 }
 
 pub fn create_video_element(id: &str) -> HtmlVideoElement {
-    remove_element_by_id(id);
+    // remove_element_by_id(id);
     let video_element = get_document()
         .create_element("video")
         .expect("cannot create video element")
         .dyn_into::<web_sys::HtmlVideoElement>()
         .expect("cannot cast video element");
-    video_element.set_id(id);
+    // video_element.set_id(id);
     video_element
 }
 
