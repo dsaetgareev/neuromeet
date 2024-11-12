@@ -28,12 +28,6 @@ pub fn create_video_decoder(video_elem_id: &str) -> (VideoDecoder, VideoDecoderC
     js_tracks.push(&video_stream_generator);
     let media_stream = MediaStream::new_with_tracks(&js_tracks).unwrap();
     let ms = MediaStream::new();
-    match ms {
-        Ok(ms) => {
-            ms.
-        },
-        Err(_) => todo!(),
-    }
 
     let output = Closure::wrap(Box::new(move |original_chunk: JsValue| {
         let chunk = Box::new(original_chunk);
