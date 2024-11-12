@@ -8,7 +8,6 @@ pub const ACTIX_WEBSOCKET: &str =  "ws://localhost:8080/lobby";
 // pub const WEBTRANSPORT_HOST: &str = concat!(std::env!("WEBTRANSPORT_HOST"), "/lobby");
 // pub const WEBTRANSPORT_HOST: &str =  "https://live-lesson.ru:4433/lobby";
 pub const WEBTRANSPORT_HOST: &str =  "https://127.0.0.1:4433/lobby";
-pub const CANVAS_LIMIT: usize = 20;
 
 pub const VIDEO_ELEMENT_ID: &str = "webcam";
 

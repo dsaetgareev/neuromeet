@@ -27,7 +27,6 @@ use web_sys::VideoEncoderInit;
 use web_sys::VideoFrame;
 use web_sys::VideoTrack;
 
-use super::super::client::VideoCallClient;
 use super::encoder_state::EncoderState;
 use super::transform::transform_video_chunk;
 
@@ -269,7 +268,7 @@ impl CameraEncoder {
             ..
         } = self.state.clone();
         let video_output_handler = {
-            Box::new(move |chunk: JsValue| {
+            Box::new(move |_chunk: JsValue| {
             })
         };
         let device_id = if let Some(vid) = &self.state.selected {

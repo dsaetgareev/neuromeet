@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use gloo_utils::window;
 use js_sys::Array;
 use js_sys::JsString;
@@ -21,13 +23,13 @@ use web_sys::VideoEncoderInit;
 use web_sys::VideoFrame;
 use web_sys::VideoTrack;
 
-use super::super::client::VideoCallClient;
 use super::encoder_state::EncoderState;
 use super::transform::transform_screen_chunk;
 
 use crate::constants::SCREEN_HEIGHT;
 use crate::constants::SCREEN_WIDTH;
 use crate::constants::VIDEO_CODEC;
+use crate::crypto::aes::Aes128State;
 
 /// [ScreenEncoder] encodes the user's screen and sends it through a [`VideoCallClient`](crate::VideoCallClient) connection.
 ///
@@ -35,8 +37,8 @@ use crate::constants::VIDEO_CODEC;
 /// * [CameraEncoder](crate::CameraEncoder)
 /// * [MicrophoneEncoder](crate::MicrophoneEncoder)
 ///
+#[derive(Clone, PartialEq)]
 pub struct ScreenEncoder {
-    client: VideoCallClient,
     state: EncoderState,
 }
 
@@ -46,9 +48,8 @@ impl ScreenEncoder {
     /// * `client` - an instance of a [`VideoCallClient`](crate::VideoCallClient).  It does not need to be currently connected.
     ///
     /// The encoder is created in a disabled state, [`encoder.set_enabled(true)`](Self::set_enabled) must be called before it can start encoding.
-    pub fn new(client: VideoCallClient) -> Self {
+    pub fn new() -> Self {
         Self {
-            client,
             state: EncoderState::new(),
         }
     }
@@ -75,13 +76,17 @@ impl ScreenEncoder {
     ///
     /// This will not do anything if [`encoder.set_enabled(true)`](Self::set_enabled) has not been
     /// called.
-    pub fn start(&mut self) {
+    pub fn start(
+        &mut self,
+        on_frame: impl Fn(PacketWrapper) + 'static,
+        user_id: String,
+        aes: Rc<Aes128State>
+    ) {
         let EncoderState {
             enabled, destroy, ..
         } = self.state.clone();
-        let client = self.client.clone();
-        let userid = client.userid().clone();
-        let aes = client.aes();
+        let userid = user_id;
+        let aes = aes;
         let screen_output_handler = {
             let mut buffer: [u8; 150000] = [0; 150000];
             let mut sequence_number = 0;
@@ -94,7 +99,7 @@ impl ScreenEncoder {
                     &userid,
                     aes.clone(),
                 );
-                client.send_packet(packet);
+                on_frame(packet);
                 sequence_number += 1;
             })
         };

@@ -54,7 +54,7 @@ impl Component for Host {
         Self {
             camera: CameraEncoder::new( VIDEO_ELEMENT_ID),
             microphone: MicrophoneEncoder::new(),
-            screen: ScreenEncoder::new(client.clone()),
+            screen: ScreenEncoder::new(),
             share_screen: ctx.props().share_screen,
             mic_enabled: ctx.props().mic_enabled,
             video_enabled: ctx.props().video_enabled,
@@ -97,7 +97,7 @@ impl Component for Host {
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
             Msg::EnableScreenShare => {
-                self.screen.start();
+                // self.screen.start();
                 true
             }
             Msg::DisableScreenShare => {

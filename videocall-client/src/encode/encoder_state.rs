@@ -35,13 +35,13 @@ impl EncoderState {
         *self.enabled.borrow()
     }
 
-    pub fn is_first(&self) -> bool {
-        *self.is_first.borrow()
-    }
+    // pub fn is_first(&self) -> bool {
+    //     *self.is_first.borrow()
+    // }
 
-    pub fn set_first(&mut self, is_first: bool) {
-        self.is_first = Rc::new(RefCell::new(is_first));
-    }
+    // pub fn set_first(&mut self, is_first: bool) {
+    //     self.is_first = Rc::new(RefCell::new(is_first));
+    // }
 
     pub fn select(&mut self, device: String) -> bool {
         self.selected = Some(device);

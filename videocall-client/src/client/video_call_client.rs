@@ -251,26 +251,19 @@ impl VideoCallClient {
         }
     }
 
-    /// Hacky function that returns true if the given peer has yet to send a frame of screen share.
-    ///
-    /// No reason for this function to exist, it should be deducible from the
-    /// [`options.on_peer_first_frame(key, MediaType::Screen)`](VideoCallClientOptions::on_peer_first_frame)
-    /// callback.   Or if polling is really necessary, instead of being hardwired for screen, it'd
-    /// be more elegant to at least pass a `MediaType`.
-    ///
-    pub fn is_awaiting_peer_screen_frame(&self, key: &String) -> bool {
-        if let Ok(inner) = self.inner.try_borrow() {
-            if let Some(peer) = inner.peer_decode_manager.get(key) {
-                return peer.screen.is_waiting_for_keyframe();
-            }
-        }
-        false
-    }
-
-    pub fn get_media_stream_by_key(&self, key: &String) -> Option<MediaStream> {
+    pub fn get_video_media_stream_by_key(&self, key: &String) -> Option<MediaStream> {
         if let Ok(inner) = self.inner.try_borrow() {
             if let Some(peer) = inner.peer_decode_manager.get(key) {
                 return Some(peer.video.media_stream.clone());
+            }
+        }
+        None
+    }
+
+    pub fn get_screen_media_stream_by_key(&self, key: &String) -> Option<MediaStream> {
+        if let Ok(inner) = self.inner.try_borrow() {
+            if let Some(peer) = inner.peer_decode_manager.get(key) {
+                return Some(peer.screen.media_stream.clone());
             }
         }
         None

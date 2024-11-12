@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, collections::BTreeMap, sync::Arc};
 use types::protos::media_packet::MediaPacket;
-use web_sys::{ CodecState, EncodedVideoChunk, EncodedVideoChunkInit, EncodedVideoChunkType, HtmlVideoElement, MediaStream, VideoDecoder, VideoDecoderConfig };
+use web_sys::{CodecState, EncodedVideoChunk, EncodedVideoChunkInit, EncodedVideoChunkType, MediaStream, VideoDecoder, VideoDecoderConfig};
 use js_sys::Uint8Array;
 use crate::{decode::video_decoder::create_video_decoder, wrappers::EncodedVideoChunkTypeWrapper};
 

@@ -1,12 +1,12 @@
 use std::rc::Rc;
 use gloo_timers::callback::Timeout;
 use types::protos::packet_wrapper::PacketWrapper;
-use videocall_client::{request_permissions, CameraEncoder, MediaDeviceAccess, MicrophoneEncoder, VideoCallClient, VideoCallClientOptions};
+use videocall_client::{CameraEncoder, MediaDeviceAccess, MicrophoneEncoder, ScreenEncoder, VideoCallClient, VideoCallClientOptions};
 // use yewdux::{Dispatch, Reducer, Store};
 use yew::prelude::*;
 use yewdux::prelude::*;
 
-use crate::{components::{host::_MeetingProps::{client, video_enabled}, middleware::Middleware}, constants::{ACTIX_WEBSOCKET, WEBTRANSPORT_HOST}};
+use crate::constants::{ACTIX_WEBSOCKET, WEBTRANSPORT_HOST};
 
 const VIDEO_ELEMENT_ID: &str = "webcam";
 
@@ -15,10 +15,12 @@ pub struct MediaStore {
     rerender: bool,
     client: Option<VideoCallClient>,
     camera: CameraEncoder,
+    screen: ScreenEncoder,
     microphone: MicrophoneEncoder,
     media_device_access: Option<MediaDeviceAccess>,
     is_device_access: bool,
     pub is_connected: bool,
+    is_screen_share: bool,
 }
 
 impl Default for MediaStore {
@@ -27,10 +29,12 @@ impl Default for MediaStore {
             rerender: Default::default(),
             client: None,
             camera: CameraEncoder::new(VIDEO_ELEMENT_ID),
+            screen: ScreenEncoder::new(),
             microphone: MicrophoneEncoder::new(),
             media_device_access: Self::create_media_device_access(),
             is_device_access: false,
             is_connected: false,
+            is_screen_share: Default::default(),
         }
     }
 }
@@ -74,6 +78,10 @@ impl MediaStore {
         self.is_connected = connected;
     }
 
+    pub fn is_screen_share(&self) -> bool {
+        self.is_screen_share
+    }
+
     fn create_video_call_client(&mut self, user_name: String, meeting_id: String, dispatch: Dispatch<MediaStore>) -> VideoCallClient {
         let opts = VideoCallClientOptions {
             userid: user_name.clone(),
@@ -88,20 +96,19 @@ impl MediaStore {
                 })
             },
             on_connection_lost: {
-                // let link = ctx.link().clone();
+                let dispatch = dispatch.clone();
                 Callback::from(move |_| {
-                    // link.send_message(Msg::from(WsAction::Lost(None))
+                    dispatch.apply(MediaMsg::Connect);
                 })
             },
             on_peer_added: {
                 let dispatch = dispatch.clone();
                 Callback::from(move |_| {
-                    log::info!("rerererererer");
                     dispatch.apply(MediaMsg::Rerender);
                 })
             },
             on_peer_first_frame: {
-                Callback::from(move |(email, media_type)| {
+                Callback::from(move |(_email, _media_type)| {
 
                 })
             },
@@ -132,16 +139,15 @@ pub enum MediaMsg {
     Rerender,
     Connect,
     SetConnected(bool),
-    MediaDeviceAccessRequest,
     ClientInit(String, String),
-    AudioDeviceInit(String),
     AudioDeviceChanged(String),
     EnableMicrophone(bool),
     SwitchMic(bool),
-    VideoDeviceInit(String),
     VideoDeviceChanged(String),
     EnableVideo(bool),
     SwitchVedeo(bool),
+    EnableScreenShare,
+    DisableScreenShare,
 }
 
 
@@ -169,13 +175,9 @@ impl Reducer<MediaStore> for MediaMsg {
             MediaMsg::SetConnected(is_connected) => {
                 state.set_connected(is_connected);
             }
-            MediaMsg::MediaDeviceAccessRequest => {
-                let future = request_permissions();
-            },
             MediaMsg::ClientInit(user_name, meeting_id) => {
                 state.client = Some(state.create_video_call_client(user_name, meeting_id, dispatch));
             },
-            MediaMsg::AudioDeviceInit(_) => todo!(),
             MediaMsg::AudioDeviceChanged(audio) => {
                 if state.microphone.select(audio) {
                     let timeout = Timeout::new(1000, move || {
@@ -207,7 +209,6 @@ impl Reducer<MediaStore> for MediaMsg {
                     state.get_mut_mic().run();
                 }
             },
-            MediaMsg::VideoDeviceInit(_) => todo!(),
             MediaMsg::VideoDeviceChanged(video) => {
                 if state.camera.select(video) {
                     let timeout = Timeout::new(1000, move || {
@@ -239,6 +240,20 @@ impl Reducer<MediaStore> for MediaMsg {
                 if state.get_mut_camera().set_enabled(!on_video) {
                     state.get_mut_camera().run();
                 }
+            },
+            MediaMsg::EnableScreenShare => {
+                let ws_client = state.get_client().clone();
+                let user_id = ws_client.userid().to_string();
+                let aes = ws_client.aes();
+                let on_frame = move |chunk: PacketWrapper| {
+                    ws_client.send_packet(chunk);                        
+                };
+                state.is_screen_share = true; 
+                state.screen.start(on_frame, user_id, aes);
+            },
+            MediaMsg::DisableScreenShare => {
+                state.is_screen_share = false;
+                state.screen.stop();
             },
         }
         store

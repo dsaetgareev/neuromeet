@@ -216,9 +216,9 @@ impl MicrophoneEncoder {
         } else {
             return;
         };
-        // let client = client.clone();
+        
         let audio_output_handler = {
-            Box::new(move |chunk: JsValue| {
+            Box::new(move |_chunk: JsValue| {
             })
         };
         let EncoderState {

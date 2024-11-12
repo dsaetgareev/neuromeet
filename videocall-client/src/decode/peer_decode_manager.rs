@@ -3,7 +3,7 @@ use super::video::Video;
 use super::video_decoder::create_video;
 use log::debug;
 use protobuf::Message;
-use web_sys::{HtmlVideoElement, MediaStream};
+use web_sys::MediaStream;
 use std::collections::HashMap;
 use std::{fmt::Display, sync::Arc};
 use types::protos::media_packet::MediaPacket;
@@ -56,7 +56,7 @@ impl Display for PeerDecodeError {
 pub struct Peer {
     pub audio: AudioPeerDecoder,
     pub video: Video,
-    pub screen: VideoPeerDecoder,
+    pub screen: Video,
     pub email: String,
     pub video_canvas_id: String,
     pub screen_canvas_id: String,
@@ -87,11 +87,11 @@ impl Peer {
     fn new_decoders(
         video_canvas_id: &str,
         screen_canvas_id: &str,
-    ) -> (AudioPeerDecoder, Video, VideoPeerDecoder) {
+    ) -> (AudioPeerDecoder, Video, Video) {
         (
             AudioPeerDecoder::new(),
             create_video(video_canvas_id.to_string()),
-            VideoPeerDecoder::new(screen_canvas_id),
+            create_video(screen_canvas_id.to_string()),
         )
     }
 
@@ -143,12 +143,14 @@ impl Peer {
                     .decode(&packet)
                     .map_err(|_| PeerDecodeError::AudioDecodeError)?,
             )),
-            MediaType::SCREEN => Ok((
+            MediaType::SCREEN => {
+                Ok((
                 media_type,
                 self.screen
-                    .decode(&packet)
+                    .decode(packet)
                     .map_err(|_| PeerDecodeError::ScreenDecodeError)?,
-            )),
+                ))
+            },
             MediaType::HEARTBEAT => Ok((
                 media_type,
                 DecodeStatus {

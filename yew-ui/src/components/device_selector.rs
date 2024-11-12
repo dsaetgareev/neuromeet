@@ -3,8 +3,11 @@ use wasm_bindgen::JsCast;
 use web_sys::HtmlSelectElement;
 use yew::prelude::*;
 use yewdux::use_store;
+use videocall_client::request_permissions;
+use yew::suspense::use_future;
+use crate::{constants::VIDEO_ELEMENT_ID, stores::media_store::{MediaMsg, MediaStore}};
 
-use crate::stores::media_store::{MediaMsg, MediaStore};
+use super::VideoButton;
 
 pub struct DeviceSelector {
     media_devices: MediaDeviceList,
@@ -135,6 +138,52 @@ pub fn devices() -> Html {
     html! {
         <>
             <DeviceSelector on_microphone_select={mic_callback} on_camera_select={cam_callback}/>
+        </>
+    }
+}
+
+#[function_component(PermissionsDevices)]
+pub fn permissions_devices() -> Html {
+    let future = use_future(|| async {
+        match request_permissions().await {
+            Ok(_res) => {
+                html!{
+                    <>
+                        <Devices />
+                        <div>
+                            <video class="self-camera" autoplay=true id={VIDEO_ELEMENT_ID}></video>
+                            <VideoButton />
+                        </div>      
+                    </>
+                }
+            }
+            Err(e) => {
+                html!(
+                    <>
+                        { format!("{:?}", e.to_owned()) }
+                        <p> { "Дайте разрешение браузеру использовать медиа ресурсы (камера, микрофон)" } </p>
+                    </>
+                )
+            } 
+        }
+    });
+    let devices = match future {
+        Ok(res) => {
+            res.to_owned()
+        }
+        Err(e) => {
+            html! {
+                <>
+                    { format!("{:?}", e.to_owned()) }
+                </>
+            }
+        } 
+        
+    };
+
+    html! {
+        <>
+            { devices }
         </>
     }
 }

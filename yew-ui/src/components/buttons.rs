@@ -22,10 +22,23 @@ pub fn video_button() -> Html {
     };
 
     let mic_onclick = {
+        let media_dispatch = media_dispatch.clone();
         let mic_enabled = mic_enabled.clone();
         Callback::from(move |_event| {
             mic_enabled.set(!*mic_enabled);
             media_dispatch.apply(MediaMsg::SwitchMic(false));
+        })
+    };
+
+    let screen_onclick = {
+        let media_state = media_state.clone();
+        let is_screen_share = media_state.is_screen_share();
+        Callback::from(move |_event| {
+            if !is_screen_share {
+                media_dispatch.apply(MediaMsg::EnableScreenShare);
+            } else {
+                media_dispatch.apply(MediaMsg::DisableScreenShare);
+            }
         })
     };
 
@@ -54,6 +67,12 @@ pub fn video_button() -> Html {
                             html! { <n-icon><svg role="presentation" viewBox="0 0 24 24" style="vertical-align: top; overflow: hidden; width: 24px; height: 24px;"><path class="n-icon__fill" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" d="M16 11V7a4 4 0 0 0-6.994-2.653m5.27 9.942A4 4 0 0 1 8 11V8.034m-3.463 3.235a7.464 7.464 0 0 0 12.348 5.645m1.833-2.387a7.407 7.407 0 0 0 .747-3.258M20 20 4 4m8 15v2.689" stroke-width="1.6"></path></svg></n-icon> }
                         }
                     }
+                </button>
+                <button
+                    class="bg-yew-blue p-2 rounded-md text-white" 
+                    onclick={ screen_onclick }
+                >
+                    <n-icon><svg role="presentation" viewBox="0 0 24 24" style="vertical-align: top; overflow: hidden; width: 24px; height: 24px;"><path class="n-icon__fill" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" d="M16 11V7a4 4 0 0 0-6.994-2.653m5.27 9.942A4 4 0 0 1 8 11V8.034m-3.463 3.235a7.464 7.464 0 0 0 12.348 5.645m1.833-2.387a7.407 7.407 0 0 0 .747-3.258M20 20 4 4m8 15v2.689" stroke-width="1.6"></path></svg></n-icon>
                 </button>
             </div>
 

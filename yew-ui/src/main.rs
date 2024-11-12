@@ -6,14 +6,13 @@ mod pages;
 mod utils;
 mod stores;
 
-use constants::{E2EE_ENABLED, LOGIN_URL};
-use types::truthy;
+use constants::LOGIN_URL;
 
 use log::info;
 use yew::prelude::*;
 #[macro_use]
 extern crate lazy_static;
-use components::{attendants::AttendantsComponent, middleware::Middleware, top_bar::TopBar, AttendantsFunc};
+use components::{middleware::Middleware, top_bar::TopBar, AttendantsFunc};
 use enum_display::EnumDisplay;
 use gloo_utils::window;
 use pages::home::Home;
@@ -27,14 +26,6 @@ enum Route {
     Home,
     #[at("/login")]
     Login,
-    #[at("/meeting/:email/:id")]
-    Meeting { email: String, id: String },
-    #[at("/meeting/:email/:id/:webtransport_enabled")]
-    Meeting2 {
-        email: String,
-        id: String,
-        webtransport_enabled: String,
-    },
     #[at("/m/:id")]
     Middleware { id: String },
     #[not_found]
@@ -46,24 +37,6 @@ fn switch(routes: Route) -> Html {
     match routes {
         Route::Home => html! { <Home /> },
         Route::Login => html! { <Login/> },
-        Route::Meeting { email, id } => html! {
-            <>
-                <TopBar room_id={id.clone()}/>
-                // <AttendantsComponent email={email} id={id} webtransport_enabled={true} e2ee_enabled={*E2EE_ENABLED} />
-                <AttendantsFunc />
-            </>
-        },
-        Route::Meeting2 {
-            email,
-            id,
-            webtransport_enabled,
-        } => html! {
-            <>
-                <TopBar room_id={id.clone()}/>
-                <AttendantsFunc />
-                // <AttendantsComponent email={email} id={id} webtransport_enabled={truthy(Some(&webtransport_enabled))} e2ee_enabled={*E2EE_ENABLED} />
-            </>
-        },
         Route::Middleware {
             id: _ 
         } => html! {
