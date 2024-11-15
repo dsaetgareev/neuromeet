@@ -56,7 +56,9 @@ impl VideoPacket {
 
     pub fn get_encoded_video_chunk_from_data(video_data: Arc<VideoPacket>) -> EncodedVideoChunk {
         let data = Uint8Array::from(video_data.data.as_ref());
+        log::info!("paket {:?}", data.clone());
         let chunk_type = EncodedVideoChunkTypeWrapper::from(video_data.chunk_type.as_str()).0;
+        log::info!("frame {:?}", chunk_type.clone());
         
         let mut encoded_chunk_init = EncodedVideoChunkInit::new(&data, video_data.timestamp, chunk_type);
         encoded_chunk_init.duration(video_data.duration);

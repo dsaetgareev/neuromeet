@@ -1,15 +1,18 @@
+use std::{cell::RefCell, rc::Rc, time::{SystemTime, UNIX_EPOCH}};
+
+use gloo_worker::{HandlerId, WorkerScope};
 use wasm_bindgen::{prelude::Closure, JsValue, JsCast };
 use wasm_bindgen_futures::JsFuture;
+use gloo_utils::format::JsValueSerdeExt;
 use log::error;
 use web_sys::{ 
     MediaStream, MediaStreamTrackGenerator, MediaStreamTrackGeneratorInit, 
     VideoDecoder, VideoDecoderConfig, VideoDecoderInit, VideoFrame,
     HtmlVideoElement 
 };
-use js_sys::Array;
+use js_sys::{Array, Uint8Array};
 
-
-use crate::constants::VIDEO_CODEC;
+use crate::{constants::VIDEO_CODEC, workers::IdWrapper, VideoWorker, VideoWorkerOutput};
 
 use super::video::Video;
 
@@ -61,9 +64,39 @@ pub fn create_video_decoder(video_elem_id: &str) -> (VideoDecoder, VideoDecoderC
     (local_video_decoder, video_config, media_stream)
 }
 
-pub fn create_video(video_elem_id: String) -> Video {
-    let (video_decoder, video_config, media_stream) = create_video_decoder(&video_elem_id);
-    Video::new(video_decoder, video_config, video_elem_id, media_stream)
+pub fn create_video_decoder_for_worker(scope: WorkerScope<VideoWorker>, id: Option<Rc<RefCell<IdWrapper>>>) -> (VideoDecoder, VideoDecoderConfig) {
+    
+    let error_video = Closure::wrap(Box::new(move |e: JsValue| {
+        log::error!("{:?}", e);
+    }) as Box<dyn FnMut(JsValue)>);
+    let id  = id.clone();
+    let output = Closure::wrap(Box::new(move |original_chunk: JsValue| {
+        let aaaa = js_sys::JSON::stringify(&original_chunk).unwrap().as_string().unwrap();
+        // let chunk = Box::new(original_chunk);
+        // let video_chunk = chunk.clone().unchecked_into::<HtmlVideoElement>();              
+        // let uint8_array = Uint8Array::new(&video_chunk);
+        // // let data = uint8_array.length().to_string();
+        // // Создаем Vec<u8> из Uint8Array
+        // let data = uint8_array.to_vec();
+        let id = id.as_ref().unwrap().borrow().id;
+        // // let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+        scope.respond(
+            id,
+            VideoWorkerOutput {
+                data: Vec::new(), 
+                id: aaaa,
+            });
+    }) as Box<dyn FnMut(JsValue)>);
+
+    let local_video_decoder = VideoDecoder::new(
+        &VideoDecoderInit::new(error_video.as_ref().unchecked_ref(), output.as_ref().unchecked_ref())
+    ).unwrap();
+    error_video.forget();
+    output.forget();
+    let video_config = VideoDecoderConfig::new(&VIDEO_CODEC); 
+    local_video_decoder.configure(&video_config);
+    log::info!("docoder created");
+    (local_video_decoder, video_config)
 }
 
 pub fn create_video_stream() -> (MediaStream, MediaStreamTrackGenerator) {

@@ -4033,6 +4033,7 @@ dependencies = [
  "rand",
  "rsa",
  "serde",
+ "serde-wasm-bindgen 0.5.0",
  "serde_derive",
  "thiserror",
  "types",
