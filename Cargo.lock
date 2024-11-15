@@ -1658,6 +1658,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "gloo-worker"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "085f262d7604911c8150162529cefab3782e91adb20202e8658f7275d2aefe5d"
+dependencies = [
+ "bincode",
+ "futures",
+ "gloo-utils 0.2.0",
+ "gloo-worker-macros",
+ "js-sys",
+ "pinned",
+ "serde",
+ "thiserror",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "gloo-worker-macros"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4007,11 +4026,14 @@ dependencies = [
  "gloo 0.8.1",
  "gloo-timers 0.2.6",
  "gloo-utils 0.1.7",
+ "gloo-worker 0.5.0",
  "js-sys",
  "log",
  "protobuf",
  "rand",
  "rsa",
+ "serde",
+ "serde_derive",
  "thiserror",
  "types",
  "wasm-bindgen",
@@ -4491,6 +4513,7 @@ dependencies = [
  "gloo 0.8.1",
  "gloo-timers 0.2.6",
  "gloo-utils 0.1.7",
+ "gloo-worker 0.5.0",
  "lazy_static",
  "log",
  "protobuf",

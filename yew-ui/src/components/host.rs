@@ -50,7 +50,7 @@ impl Component for Host {
     type Properties = MeetingProps;
 
     fn create(ctx: &Context<Self>) -> Self {
-        let client = &ctx.props().client;
+        let _client = &ctx.props().client;
         Self {
             camera: CameraEncoder::new( VIDEO_ELEMENT_ID),
             microphone: MicrophoneEncoder::new(),

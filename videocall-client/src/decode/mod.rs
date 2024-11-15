@@ -8,3 +8,4 @@ mod video_decoder;
 mod video;
 
 pub use peer_decode_manager::{PeerDecodeManager, PeerStatus};
+pub use video_decoder::create_video_decoder;

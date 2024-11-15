@@ -16,7 +16,8 @@ pub struct Video {
     pub sequence: Option<u64>,
     pub require_key: bool,
     pub video_elem_id: String, 
-    pub media_stream: MediaStream
+    pub media_stream: MediaStream,
+    // pub worker: WorkerBridge<VideoWorker>,
 }
 
 impl Video {
@@ -26,6 +27,11 @@ impl Video {
         video_elem_id: String,
         media_stream: MediaStream
     ) -> Self {
+        // let worker = VideoWorker::spawner()
+        //     .callback(move |output| {
+        //         log::info!("from woker {:?}", output.data);
+        //     })
+        //     .spawn("../worker.js");
         Self {
             cache: BTreeMap::new(),
             video_decoder,
@@ -34,6 +40,7 @@ impl Video {
             require_key: false,
             video_elem_id,
             media_stream,
+            // worker
         }
     }
 
@@ -82,11 +89,14 @@ impl Video {
 
     pub fn decode_packet(&mut self, packet: Arc<MediaPacket>) {
         let encoded_video_chunk = get_encoded_video_chunk(packet);
+        // let video_worker_packet = VideoWorkerInput {data: VideoPacket::from(packet)};
+        // self.worker.send(video_worker_packet);
         match self.state() {
             CodecState::Unconfigured => {
                 log::info!("video decoder unconfigured");
             },
             CodecState::Configured => {
+                log::info!("decodddddderrr");
                 let _ = self.video_decoder.decode(&encoded_video_chunk);
             },
             CodecState::Closed => {

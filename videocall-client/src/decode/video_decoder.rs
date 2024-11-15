@@ -27,7 +27,6 @@ pub fn create_video_decoder(video_elem_id: &str) -> (VideoDecoder, VideoDecoderC
     let js_tracks = Array::new();
     js_tracks.push(&video_stream_generator);
     let media_stream = MediaStream::new_with_tracks(&js_tracks).unwrap();
-    let ms = MediaStream::new();
 
     let output = Closure::wrap(Box::new(move |original_chunk: JsValue| {
         let chunk = Box::new(original_chunk);
@@ -65,4 +64,36 @@ pub fn create_video_decoder(video_elem_id: &str) -> (VideoDecoder, VideoDecoderC
 pub fn create_video(video_elem_id: String) -> Video {
     let (video_decoder, video_config, media_stream) = create_video_decoder(&video_elem_id);
     Video::new(video_decoder, video_config, video_elem_id, media_stream)
+}
+
+pub fn create_video_stream() -> (MediaStream, MediaStreamTrackGenerator) {
+    let video_stream_generator =
+        MediaStreamTrackGenerator::new(&MediaStreamTrackGeneratorInit::new("video")).unwrap();
+    let js_tracks = Array::new();
+    js_tracks.push(&video_stream_generator);
+    let media_stream = MediaStream::new_with_tracks(&js_tracks).unwrap();
+    (media_stream, video_stream_generator)
+}
+
+pub fn video_handle(video_stream_generator: MediaStreamTrackGenerator, original_chunk: JsValue) {
+    let chunk = Box::new(original_chunk);
+    let video_chunk = chunk.clone().unchecked_into::<HtmlVideoElement>();              
+    let writable = video_stream_generator.writable();
+    if writable.locked() {
+        return;
+    }
+    if let Err(e) = writable.get_writer().map(|writer| {
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Err(e) = JsFuture::from(writer.ready()).await {
+                error!("write chunk error {:?}", e);
+            }
+            if let Err(e) = JsFuture::from(writer.write_with_chunk(&video_chunk)).await {
+                error!("write chunk error {:?}", e);
+            };
+            video_chunk.unchecked_into::<VideoFrame>().close();
+            writer.release_lock();
+        });
+    }) {
+        error!("error {:?}", e);
+    }        
 }
