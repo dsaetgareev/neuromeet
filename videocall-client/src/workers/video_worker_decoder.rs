@@ -6,7 +6,8 @@ use js_sys::Uint8Array;
 use serde::{Serialize, Deserialize};
 use types::protos::media_packet::MediaPacket;
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
-use web_sys::{CodecState, VideoDecoder, VideoDecoderConfig, VideoDecoderInit, EncodedAudioChunkInit, EncodedAudioChunk, EncodedVideoChunk, EncodedVideoChunkInit, EncodedVideoChunkType};
+use web_sys::{CodecState, VideoDecoder, VideoDecoderConfig, VideoDecoderInit, EncodedAudioChunkInit,
+     EncodedAudioChunk, EncodedVideoChunk, EncodedVideoChunkInit, EncodedVideoChunkType};
 
 use crate::decode::DecodeStatus;
 use crate::{constants::VIDEO_CODEC, decode::{create_video_decoder, create_video_decoder_for_worker}};
@@ -17,13 +18,13 @@ const MAX_BUFFER_SIZE: usize = 100;
 
 #[derive(Clone)]
 pub struct VideoWorkerDecoder {
-    cache: BTreeMap<u64, Arc<VideoPacket>>,
+    cache: BTreeMap<u64, Arc<MediaPacket>>,
     video_decoder: VideoDecoder,
     video_config: VideoDecoderConfig,
     pub sequence: Option<u64>,
     require_key: bool,
     scope: WorkerScope<VideoWorker>, 
-    id: Option<Rc<RefCell<IdWrapper>>>,
+    id: HandlerId,
 }
 
 impl VideoWorkerDecoder {
@@ -32,7 +33,7 @@ impl VideoWorkerDecoder {
         video_decoder: VideoDecoder,
         video_config: VideoDecoderConfig,
         scope: &WorkerScope<VideoWorker>, 
-        id: Option<Rc<RefCell<IdWrapper>>>,
+        id: HandlerId,
     ) -> Self {
         Self {
             cache: BTreeMap::new(),
@@ -45,11 +46,11 @@ impl VideoWorkerDecoder {
         }
     }
 
-    pub fn decode(&mut self, packet: Arc<VideoPacket>) -> Result<DecodeStatus, anyhow::Error> {
-        let new_sequence_number = packet.sequence_number;
-        let frame_type = packet.chunk_type.as_str();
+    pub fn decode(&mut self, packet: Arc<MediaPacket>) -> Result<DecodeStatus, anyhow::Error> {
+        let new_sequence_number = packet.video_metadata.sequence;
+        let frame_type = EncodedVideoChunkTypeWrapper::from(packet.frame_type.as_str()).0;
         let cache_size = self.cache.len();
-        if frame_type == "key" {
+        if frame_type == EncodedVideoChunkType::Key {
             self.require_key = false;
             self.decode_packet(packet);
             self.sequence = Some(new_sequence_number);
@@ -89,14 +90,13 @@ impl VideoWorkerDecoder {
         })
     }
 
-    pub fn decode_packet(&mut self, packet: Arc<VideoPacket>) {
+    pub fn decode_packet(&mut self, packet: Arc<MediaPacket>) {
         let encoded_video_chunk = get_encoded_video_chunk(packet);
         match self.state() {
             CodecState::Unconfigured => {
                 log::info!("video decoder unconfigured");
             },
             CodecState::Configured => {
-                log::info!("decodddddderrr");
                 let _ = self.video_decoder.decode(&encoded_video_chunk);
             },
             CodecState::Closed => {
@@ -145,15 +145,15 @@ impl VideoWorkerDecoder {
 }
 
 
-pub fn get_encoded_video_chunk(packet: Arc<VideoPacket>) -> EncodedVideoChunk {
+pub fn get_encoded_video_chunk(packet: Arc<MediaPacket>) -> EncodedVideoChunk {
     get_encoded_video_chunk_from_data(packet)
 }
 
-pub fn get_encoded_video_chunk_from_data(video_data: Arc<VideoPacket>) -> EncodedVideoChunk {
+pub fn get_encoded_video_chunk_from_data(video_data: Arc<MediaPacket>) -> EncodedVideoChunk {
     let data = Uint8Array::from(video_data.data.as_ref());
-    // let frame_type = EncodedVideoChunkTypeWrapper(video_data.chunk_type);
-    let frame_type = EncodedVideoChunkTypeWrapper::from(video_data.chunk_type.as_str()).0;
-    let mut encoded_chunk_init = EncodedVideoChunkInit::new(&data, video_data.timestamp, frame_type);
+    let chunk_type = EncodedVideoChunkTypeWrapper::from(video_data.frame_type.as_str()).0;
+    // let chunk_type = EncodedVideoChunkTypeWrapper::from(video_data.chunk_type.as_str()).0;
+    let mut encoded_chunk_init = EncodedVideoChunkInit::new(&data, video_data.timestamp, chunk_type);
     encoded_chunk_init.duration(video_data.duration);
     let encoded_video_chunk = EncodedVideoChunk::new(
         &encoded_chunk_init

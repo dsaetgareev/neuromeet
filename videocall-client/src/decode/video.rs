@@ -4,6 +4,7 @@ use types::protos::media_packet::MediaPacket;
 use wasm_bindgen::JsValue;
 use web_sys::{CodecState, EncodedVideoChunk, EncodedVideoChunkInit, EncodedVideoChunkType, MediaStream, VideoDecoder, VideoDecoderConfig};
 use js_sys::Uint8Array;
+use protobuf::Message;
 use crate::{decode::video_decoder::{create_video_decoder, video_handle}, workers::VideoPacket, wrappers::EncodedVideoChunkTypeWrapper, VideoWorker, VideoWorkerInput};
 
 use super::{create_video_stream, peer_decoder::DecodeStatus};
@@ -20,12 +21,15 @@ impl Video {
     pub fn new() -> Self {
         let (media_stream, media_stream_generator) = create_video_stream();
 
+        let media_stream_generator = media_stream_generator.clone();
         let worker = VideoWorker::spawner()
             .callback(move |output| {
                 let data = output.data;
-                // let js_value: JsValue = JsValue::from_serde(&data).unwrap();
+                let uint8 = Uint8Array::new_with_length(data.len() as u32);
+                uint8.copy_from(&data);
+                let js_value = JsValue::from(uint8);
 
-                // // video_handle(media_stream_generator, original_chunk);
+                // video_handle(media_stream_generator.clone(), js_value);
                 log::info!("from woker {:?}", data);
                 log::info!("iddddd {:?}", output.id);
             })
@@ -37,9 +41,10 @@ impl Video {
         }
     }
 
-    pub fn decode(&mut self, packet: Arc<MediaPacket>) -> Result<DecodeStatus, anyhow::Error> {
+    pub fn decode(&mut self, media_packet: Arc<MediaPacket>) -> Result<DecodeStatus, anyhow::Error> {
+        let data = media_packet.write_to_bytes().unwrap();
         // log::info!("data len {}", packet.data.len());
-        self.worker.send(VideoWorkerInput {data: VideoPacket::from(packet)});
+        self.worker.send(VideoWorkerInput {data});
         Ok(DecodeStatus {
             _rendered: true,
             first_frame: true
