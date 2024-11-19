@@ -1,5 +1,5 @@
 use std::rc::Rc;
-
+use std::sync::atomic::Ordering;
 use gloo_utils::window;
 use js_sys::Array;
 use js_sys::JsString;
@@ -154,10 +154,10 @@ impl ScreenEncoder {
 
             let poll_screen = async {
                 loop {
-                    if *destroy.borrow() {
+                    if destroy.load(Ordering::Acquire) {
                         return;
                     }
-                    if !*enabled.borrow() {
+                    if !enabled.load(Ordering::Acquire) {
                         return;
                     }
                     match JsFuture::from(screen_reader.read()).await {

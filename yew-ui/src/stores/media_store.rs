@@ -187,7 +187,7 @@ impl Reducer<MediaStore> for MediaMsg {
                 }
             },
             MediaMsg::EnableMicrophone(should_enable) => {
-                if should_enable && state.get_media_device_access().is_granted() {
+                if should_enable {
                     if state.client.is_some() {
                         let ws_client = state.client.as_ref().unwrap().clone();
                         let user_id = ws_client.userid().to_string();
@@ -195,10 +195,11 @@ impl Reducer<MediaStore> for MediaMsg {
                         let on_audio = move |chunk: PacketWrapper| {
                             ws_client.send_packet(chunk);                        
                         }; 
+                        log::info!("mic start");
                         state.get_mut_mic().start(on_audio, user_id, aes);
                         dispatch.apply(MediaMsg::Connect);
                     } else {
-                        state.microphone.run(); 
+                        // state.microphone.run(); 
                     }
                 }               
             },
@@ -230,7 +231,7 @@ impl Reducer<MediaStore> for MediaMsg {
                         state.get_mut_camera().start(on_video, user_id, aes);
                         dispatch.apply(MediaMsg::Connect);
                     } else {
-                        state.get_mut_camera().run();
+                        // state.get_mut_camera().run();
                     }
                 }
             },

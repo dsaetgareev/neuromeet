@@ -5,6 +5,7 @@ use js_sys::JsString;
 use js_sys::Reflect;
 use log::error;
 use std::rc::Rc;
+use std::sync::atomic::Ordering;
 use types::protos::packet_wrapper::PacketWrapper;
 use wasm_bindgen::prelude::Closure;
 use wasm_bindgen::JsCast;
@@ -180,11 +181,11 @@ impl MicrophoneEncoder {
 
             let poll_audio = async {
                 loop {
-                    if !*enabled.borrow()
-                        || *destroy.borrow()
-                        || *switching.borrow()
+                    if !enabled.load(Ordering::Acquire)
+                        || destroy.load(Ordering::Acquire)
+                        || switching.load(Ordering::Acquire)
                     {
-                        *switching.as_ref().borrow_mut() = false;
+                        switching.store(false, Ordering::Release);
                         let audio_track = audio_track.clone().unchecked_into::<MediaStreamTrack>();
                         audio_track.stop();
                         audio_encoder.close();
@@ -284,11 +285,11 @@ impl MicrophoneEncoder {
 
             let poll_audio = async {
                 loop {
-                    if !*enabled.borrow()
-                        || *destroy.borrow()
-                        || *switching.borrow()
+                    if !enabled.load(Ordering::Acquire)
+                        || destroy.load(Ordering::Acquire)
+                        || switching.load(Ordering::Acquire)
                     {
-                        *switching.as_ref().borrow_mut() = false;
+                        switching.store(false, Ordering::Release);
                         let audio_track = audio_track.clone().unchecked_into::<MediaStreamTrack>();
                         audio_track.stop();
                         audio_encoder.close();

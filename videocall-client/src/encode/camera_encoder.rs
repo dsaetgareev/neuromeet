@@ -1,5 +1,5 @@
 use std::rc::Rc;
-
+use std::sync::atomic::Ordering;
 use gloo_utils::window;
 use js_sys::Array;
 use js_sys::Boolean;
@@ -220,16 +220,16 @@ impl CameraEncoder {
             let mut video_frame_counter = 0;
             let poll_video = async {
                 loop {
-                    if (!*enabled.borrow())
-                        || *destroy.borrow()
-                        || *switching.borrow()
+                    if !enabled.load(Ordering::Acquire)
+                        || destroy.load(Ordering::Acquire)
+                        || switching.load(Ordering::Acquire)
                     {
                         video_track
                             .clone()
                             .unchecked_into::<MediaStreamTrack>()
                             .stop();
                         video_encoder.close();
-                        *switching.as_ref().borrow_mut() = false;
+                        switching.store(false, Ordering::Release);
                         return;
                     }
                     match JsFuture::from(video_reader.read()).await {
@@ -354,16 +354,16 @@ impl CameraEncoder {
             let mut video_frame_counter = 0;
             let poll_video = async {
                 loop {
-                    if (!*enabled.borrow())
-                        || *destroy.borrow()
-                        || *switching.borrow()
+                    if !enabled.load(Ordering::Acquire)
+                        || destroy.load(Ordering::Acquire)
+                        || switching.load(Ordering::Acquire)
                     {
                         video_track
                             .clone()
                             .unchecked_into::<MediaStreamTrack>()
                             .stop();
                         video_encoder.close();
-                        *switching.as_ref().borrow_mut() = false;
+                        switching.store(false, Ordering::Release);
                         return;
                     }
                     match JsFuture::from(video_reader.read()).await {

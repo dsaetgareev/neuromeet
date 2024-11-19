@@ -152,7 +152,7 @@ pub fn permissions_devices() -> Html {
                         <Devices />
                         <div>
                             <video class="self-camera" autoplay=true id={VIDEO_ELEMENT_ID}></video>
-                            <VideoButton />
+                            // <VideoButton />
                         </div>      
                     </>
                 }
