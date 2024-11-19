@@ -78,7 +78,9 @@ mod media_devices;
 mod wrappers;
 pub mod utils;
 pub mod errors;
+pub mod workers;
 
 pub use client::{VideoCallClient, VideoCallClientOptions};
 pub use encode::{CameraEncoder, MicrophoneEncoder, ScreenEncoder};
 pub use media_devices::{MediaDeviceAccess, MediaDeviceList, SelectableDevices, request_permissions};
+pub use workers::{VideoWorker, VideoWorkerInput, VideoWorkerOutput};

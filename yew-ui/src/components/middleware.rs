@@ -1,9 +1,9 @@
 use yew::{ html, function_component, Html};
 use yewdux::prelude::use_store;
+use crate::pages::Home;
 use crate::stores::app_store::AppStore;
-use crate::AttendantsFunc;
-use crate::TopBar;
-use crate::Home;
+use crate::components::AttendantsFunc;
+use crate::components::top_bar::TopBar;
 
 #[function_component(Middleware)]
 pub fn middleware() -> Html {

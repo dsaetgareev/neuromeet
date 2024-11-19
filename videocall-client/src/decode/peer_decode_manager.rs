@@ -1,6 +1,5 @@
 use super::hash_map_with_ordered_keys::HashMapWithOrderedKeys;
 use super::video::Video;
-use super::video_decoder::create_video;
 use log::debug;
 use protobuf::Message;
 use web_sys::MediaStream;
@@ -90,8 +89,8 @@ impl Peer {
     ) -> (AudioPeerDecoder, Video, Video) {
         (
             AudioPeerDecoder::new(),
-            create_video(video_canvas_id.to_string()),
-            create_video(screen_canvas_id.to_string()),
+            Video::new(),
+            Video::new(),
         )
     }
 
