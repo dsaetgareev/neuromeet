@@ -91,15 +91,17 @@ impl VideoWorkerDecoder {
     }
 
     pub fn decode_packet(&mut self, packet: Arc<MediaPacket>) {
-        let encoded_video_chunk = get_encoded_video_chunk(packet);
+        let encoded_video_chunk = get_encoded_video_chunk(packet.clone());
         match self.state() {
             CodecState::Unconfigured => {
                 log::info!("video decoder unconfigured");
+                web_sys::console::log_1(&JsValue::from_str("unconfigured"));
             },
             CodecState::Configured => {
                 let _ = self.video_decoder.decode(&encoded_video_chunk);
             },
             CodecState::Closed => {
+                web_sys::console::log_1(&JsValue::from_str("video decoder closed"));
                 log::error!("video decoder closed");
                 self.require_key = true;
 

@@ -1,11 +1,11 @@
 use std::{cmp::Ordering, collections::BTreeMap, sync::Arc};
 use gloo_worker::{Spawnable, WorkerBridge};
 use types::protos::media_packet::MediaPacket;
-use wasm_bindgen::JsValue;
-use web_sys::{CodecState, EncodedVideoChunk, EncodedVideoChunkInit, EncodedVideoChunkType, MediaStream, VideoDecoder, VideoDecoderConfig};
+use wasm_bindgen::{JsCast, JsValue};
+use web_sys::{VideoFrame, CodecState, EncodedVideoChunk, EncodedVideoChunkInit, EncodedVideoChunkType, HtmlVideoElement, MediaStream, VideoDecoder, VideoDecoderConfig};
 use js_sys::Uint8Array;
 use protobuf::Message;
-use crate::{decode::video_decoder::{create_video_decoder, video_handle}, workers::VideoPacket, wrappers::EncodedVideoChunkTypeWrapper, VideoWorker, VideoWorkerInput};
+use crate::{constants::{VIDEO_HEIGHT, VIDEO_WIDTH}, decode::video_decoder::{create_video_decoder, video_handle}, workers::VideoPacket, wrappers::EncodedVideoChunkTypeWrapper, VideoWorker, VideoWorkerInput};
 
 use super::{create_video_stream, peer_decoder::DecodeStatus};
 
@@ -24,14 +24,22 @@ impl Video {
         let media_stream_generator = media_stream_generator.clone();
         let worker = VideoWorker::spawner()
             .callback(move |output| {
-                let data = output.data;
-                let uint8 = Uint8Array::new_with_length(data.len() as u32);
-                uint8.copy_from(&data);
-                let js_value = JsValue::from(uint8);
+                let buf = output.data;
 
-                // video_handle(media_stream_generator.clone(), js_value);
-                log::info!("from woker {:?}", data);
-                log::info!("iddddd {:?}", output.id);
+                let data = Uint8Array::from(buf.as_ref());
+                let vfbi = web_sys::VideoFrameBufferInit::new(
+                    VIDEO_HEIGHT as u32,
+                    VIDEO_WIDTH as u32,
+                    web_sys::VideoPixelFormat::I420,
+                    output.timestamp,
+                );
+
+                let chunk = web_sys::VideoFrame::new_with_buffer_source_and_video_frame_buffer_init(&data, &vfbi).unwrap();
+        
+        
+                let original_chunk = chunk.unchecked_into::<VideoFrame>();
+
+                video_handle(media_stream_generator.clone(), original_chunk);
             })
             .spawn("../worker.js");
 
@@ -43,7 +51,6 @@ impl Video {
 
     pub fn decode(&mut self, media_packet: Arc<MediaPacket>) -> Result<DecodeStatus, anyhow::Error> {
         let data = media_packet.write_to_bytes().unwrap();
-        // log::info!("data len {}", packet.data.len());
         self.worker.send(VideoWorkerInput {data});
         Ok(DecodeStatus {
             _rendered: true,

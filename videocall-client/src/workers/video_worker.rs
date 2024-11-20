@@ -6,7 +6,7 @@ use protobuf::Message;
 use serde::{Serialize, Deserialize};
 use types::protos::media_packet::MediaPacket;
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
-use web_sys::{VideoDecoder, VideoDecoderConfig, VideoDecoderInit};
+use web_sys::{console, VideoDecoder, VideoDecoderConfig, VideoDecoderInit};
 
 use crate::{constants::VIDEO_CODEC, decode::{create_video_decoder, create_video_decoder_for_worker, PeerDecodeError}};
 
@@ -22,7 +22,7 @@ pub struct VideoWorkerInput {
 #[derive(Serialize, Deserialize)]
 pub struct VideoWorkerOutput {
     pub data: Vec<u8>,
-    pub id: String,
+    pub timestamp: f64,
 }
 
 pub struct IdWrapper {
@@ -64,11 +64,6 @@ impl Worker for VideoWorker {
             let (video_worker_decoder, video_config) = create_video_decoder_for_worker(scope.clone(), id.clone());
             self.decoder = Some(VideoWorkerDecoder::new(video_worker_decoder, video_config, &scope, id.clone()));
         }
-        // self.scope.respond(id.clone(), VideoWorkerOutput {
-        //     data: msg.data.data,
-        //     id: id
-        // });
-
     }
 
 }

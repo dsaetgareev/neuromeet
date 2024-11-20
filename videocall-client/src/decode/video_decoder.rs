@@ -15,7 +15,10 @@ use js_sys::{Array, Uint8Array};
 use crate::{constants::VIDEO_CODEC, workers::IdWrapper, VideoWorker, VideoWorkerOutput};
 
 use super::video::Video;
-
+use types::protos::{
+    media_packet::{media_packet::MediaType, MediaPacket, VideoMetadata},
+    packet_wrapper::{packet_wrapper::PacketType, PacketWrapper},
+};
 
 
 pub fn create_video_decoder(video_elem_id: &str) -> (VideoDecoder, VideoDecoderConfig, MediaStream) {
@@ -72,17 +75,20 @@ pub fn create_video_decoder_for_worker(scope: WorkerScope<VideoWorker>, id: Hand
 
     let id  = id.clone();
     let output = Closure::wrap(Box::new(move |original_chunk: JsValue| {
-        // let aaa = format!("shcunk {:?}", original_chunk);
-        let uint8_array = Uint8Array::new(&original_chunk);
-        let data = uint8_array.to_vec();
-        let length = data.len();
+        web_sys::console::log_1(&JsValue::from(original_chunk.clone()));
+        let original_chunk = original_chunk.unchecked_into::<VideoFrame>();
+        let byte_length = original_chunk.allocation_size();
+        let ui = Uint8Array::new_with_length(byte_length);
+        original_chunk.copy_to_with_buffer_source(&ui);
+
         let id = id;
         scope.respond(
             id,
             VideoWorkerOutput {
-                data: data, 
-                id: length.to_string(),
+                data: ui.to_vec(), 
+                timestamp: original_chunk.timestamp().unwrap(),
             });
+        original_chunk.close();
     }) as Box<dyn FnMut(JsValue)>);
 
     let local_video_decoder = VideoDecoder::new(
@@ -105,7 +111,7 @@ pub fn create_video_stream() -> (MediaStream, MediaStreamTrackGenerator) {
     (media_stream, video_stream_generator)
 }
 
-pub fn video_handle(video_stream_generator: MediaStreamTrackGenerator, original_chunk: JsValue) {
+pub fn video_handle(video_stream_generator: MediaStreamTrackGenerator, original_chunk: VideoFrame) {
     let chunk = Box::new(original_chunk);
     let video_chunk = chunk.clone().unchecked_into::<HtmlVideoElement>();              
     let writable = video_stream_generator.writable();
