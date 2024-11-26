@@ -1,18 +1,16 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::{cmp::Ordering, collections::BTreeMap, sync::Arc};
-use gloo_worker::{HandlerId, Worker, WorkerScope};
 use js_sys::Uint8Array;
 use serde::{Serialize, Deserialize};
 use types::protos::media_packet::MediaPacket;
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
-use web_sys::{CodecState, VideoDecoder, VideoDecoderConfig, VideoDecoderInit, EncodedAudioChunkInit,
-     EncodedAudioChunk, EncodedVideoChunk, EncodedVideoChunkInit, EncodedVideoChunkType};
+use web_sys::{CodecState, EncodedAudioChunk, EncodedAudioChunkInit, EncodedVideoChunk, EncodedVideoChunkInit, EncodedVideoChunkType, VideoDecoder, VideoDecoderConfig, VideoDecoderInit, WritableStream};
 
 use crate::decode::DecodeStatus;
 use crate::{constants::VIDEO_CODEC, decode::{create_video_decoder, create_video_decoder_for_worker}};
 
-use super::{IdWrapper, VideoPacket, VideoWorker};
+use super::VideoWorker;
 use crate::wrappers::EncodedVideoChunkTypeWrapper;
 const MAX_BUFFER_SIZE: usize = 100;
 
@@ -23,8 +21,7 @@ pub struct VideoWorkerDecoder {
     video_config: VideoDecoderConfig,
     pub sequence: Option<u64>,
     require_key: bool,
-    scope: WorkerScope<VideoWorker>, 
-    id: HandlerId,
+    writable: WritableStream,
 }
 
 impl VideoWorkerDecoder {
@@ -32,8 +29,7 @@ impl VideoWorkerDecoder {
     pub fn new(
         video_decoder: VideoDecoder,
         video_config: VideoDecoderConfig,
-        scope: &WorkerScope<VideoWorker>, 
-        id: HandlerId,
+        writable: WritableStream,
     ) -> Self {
         Self {
             cache: BTreeMap::new(),
@@ -41,8 +37,7 @@ impl VideoWorkerDecoder {
             video_config,
             sequence: None,
             require_key: false,
-            scope: scope.clone(),
-            id
+            writable,
         }
     }
 
@@ -82,8 +77,7 @@ impl VideoWorkerDecoder {
                     }
                 }
             }
-        }
-        
+        }         
         Ok(DecodeStatus {
             _rendered: true,
             first_frame: self.require_key
@@ -94,18 +88,16 @@ impl VideoWorkerDecoder {
         let encoded_video_chunk = get_encoded_video_chunk(packet.clone());
         match self.state() {
             CodecState::Unconfigured => {
-                log::info!("video decoder unconfigured");
-                web_sys::console::log_1(&JsValue::from_str("unconfigured"));
+                web_sys::console::log_1(&JsValue::from_str("video decoder unconfigured"));
             },
             CodecState::Configured => {
                 let _ = self.video_decoder.decode(&encoded_video_chunk);
             },
             CodecState::Closed => {
                 web_sys::console::log_1(&JsValue::from_str("video decoder closed"));
-                log::error!("video decoder closed");
                 self.require_key = true;
 
-                let (video_decoder, video_config) = create_video_decoder_for_worker(self.scope.clone(), self.id.clone());     
+                let (video_decoder, video_config) = create_video_decoder_for_worker(self.writable.clone());
                 self.video_decoder = video_decoder;
                 self.video_config = video_config;
                 self.video_decoder.configure(&self.video_config);

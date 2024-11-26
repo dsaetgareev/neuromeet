@@ -1,18 +1,15 @@
 use std::{cell::RefCell, rc::Rc, time::{SystemTime, UNIX_EPOCH}};
 use protobuf::Message;
-use gloo_worker::{HandlerId, WorkerScope};
 use wasm_bindgen::{prelude::Closure, JsValue, JsCast };
 use wasm_bindgen_futures::JsFuture;
 use gloo_utils::format::JsValueSerdeExt;
 use log::error;
 use web_sys::{ 
-    MediaStream, MediaStreamTrackGenerator, MediaStreamTrackGeneratorInit, 
-    VideoDecoder, VideoDecoderConfig, VideoDecoderInit, VideoFrame,
-    HtmlVideoElement 
+    HtmlVideoElement, MediaStream, MediaStreamTrackGenerator, MediaStreamTrackGeneratorInit, VideoDecoder, VideoDecoderConfig, VideoDecoderInit, VideoFrame, WritableStream 
 };
 use js_sys::{Array, Uint8Array};
 
-use crate::{constants::VIDEO_CODEC, workers::IdWrapper, VideoWorker, VideoWorkerOutput};
+use crate::{constants::VIDEO_CODEC, VideoWorker};
 
 use super::video::Video;
 use types::protos::{
@@ -67,28 +64,35 @@ pub fn create_video_decoder(video_elem_id: &str) -> (VideoDecoder, VideoDecoderC
     (local_video_decoder, video_config, media_stream)
 }
 
-pub fn create_video_decoder_for_worker(scope: WorkerScope<VideoWorker>, id: HandlerId) -> (VideoDecoder, VideoDecoderConfig) {
+pub fn create_video_decoder_for_worker(writable: WritableStream) -> (VideoDecoder, VideoDecoderConfig) {
     
     let error_video = Closure::wrap(Box::new(move |e: JsValue| {
         log::error!("{:?}", e);
     }) as Box<dyn FnMut(JsValue)>);
 
-    let id  = id.clone();
     let output = Closure::wrap(Box::new(move |original_chunk: JsValue| {
-        web_sys::console::log_1(&JsValue::from(original_chunk.clone()));
-        let original_chunk = original_chunk.unchecked_into::<VideoFrame>();
-        let byte_length = original_chunk.allocation_size();
-        let ui = Uint8Array::new_with_length(byte_length);
-        original_chunk.copy_to_with_buffer_source(&ui);
+        let chunk = Box::new(original_chunk);
+        let video_chunk = chunk.clone().unchecked_into::<HtmlVideoElement>();              
 
-        let id = id;
-        scope.respond(
-            id,
-            VideoWorkerOutput {
-                data: ui.to_vec(), 
-                timestamp: original_chunk.timestamp().unwrap(),
+        if writable.locked() {
+            return;
+        }
+        if let Err(e) = writable.get_writer().map(|writer| {
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Err(e) = JsFuture::from(writer.ready()).await {
+                    error!("write chunk error {:?}", e);
+                }
+                if let Err(e) = JsFuture::from(writer.write_with_chunk(&video_chunk)).await {
+
+                    error!("write chunk error {:?}", e);
+                };
+                video_chunk.unchecked_into::<VideoFrame>().close();
+                writer.release_lock();
             });
-        original_chunk.close();
+        }) {
+            web_sys::console::error_1(&e);
+            error!("error {:?}", e);
+        }        
     }) as Box<dyn FnMut(JsValue)>);
 
     let local_video_decoder = VideoDecoder::new(

@@ -13,7 +13,6 @@ getrandom = { version = "0.2.10", features = ["js"] }
 gloo = "0.8.0"
 gloo-timers = "0.2.6"
 gloo-utils = "0.1"
-gloo-worker = "0.5"
 js-sys = "0.3.64"
 log = "0.4.19"
 protobuf = "3.2.0"
