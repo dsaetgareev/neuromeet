@@ -1,16 +1,13 @@
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::{cmp::Ordering, collections::BTreeMap, sync::Arc};
 use js_sys::Uint8Array;
-use serde::{Serialize, Deserialize};
 use types::protos::media_packet::MediaPacket;
-use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
-use web_sys::{CodecState, EncodedAudioChunk, EncodedAudioChunkInit, EncodedVideoChunk, EncodedVideoChunkInit, EncodedVideoChunkType, VideoDecoder, VideoDecoderConfig, VideoDecoderInit, WritableStream};
+use wasm_bindgen::JsValue;
+use web_sys::{CodecState, EncodedVideoChunk, EncodedVideoChunkInit, EncodedVideoChunkType, VideoDecoder, VideoDecoderConfig, WritableStream};
 
 use crate::decode::DecodeStatus;
-use crate::{constants::VIDEO_CODEC, decode::{create_video_decoder, create_video_decoder_for_worker}};
+use crate::decode::create_video_decoder_for_worker;
 
-use super::VideoWorker;
+use super::PeerDecode;
 use crate::wrappers::EncodedVideoChunkTypeWrapper;
 const MAX_BUFFER_SIZE: usize = 100;
 
@@ -153,4 +150,10 @@ pub fn get_encoded_video_chunk_from_data(video_data: Arc<MediaPacket>) -> Encode
         &encoded_chunk_init
     ).unwrap();
     encoded_video_chunk
+}
+
+impl PeerDecode for VideoWorkerDecoder {
+    fn decode(&mut self, packet: Arc<MediaPacket>) {
+        let _ = self.decode(packet);
+    }
 }

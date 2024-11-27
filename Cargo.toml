@@ -7,7 +7,7 @@ members = [
     "videocall-client",
     "yew-ui",
 ]
-exclude = [
-    # "actix-api",
-    # "yew-ui",
-]
+# exclude = [
+#     # "actix-api",
+#     # "yew-ui",
+# ]

@@ -1,4 +1,4 @@
-use web_sys::{console, window, Blob, BlobPropertyBag, MessageEvent, Url, Worker, WritableStream};
+use web_sys::{window, Blob, BlobPropertyBag, Url, Worker};
 use js_sys::Array;
 
 pub fn worker_new(name: &str) -> Worker {

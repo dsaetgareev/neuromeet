@@ -9,8 +9,8 @@ use crate::stores::media_store::{MediaMsg, MediaStore};
 pub fn video_button() -> Html {
 
     let (media_state, media_dispatch) = use_store::<MediaStore>();
-    let camera_enabled = use_state(|| media_state.get_camera().get_enabled());
-    let mic_enabled = use_state(|| media_state.get_mic().get_enabled());
+    let _camera_enabled = use_state(|| media_state.get_camera().get_enabled());
+    let _mic_enabled = use_state(|| media_state.get_mic().get_enabled());
 
     // let onclick = {
     //     let media_dispatch = media_dispatch.clone();

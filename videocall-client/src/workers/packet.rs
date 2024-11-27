@@ -3,7 +3,7 @@ use std::sync::Arc;
 use js_sys::Uint8Array;
 use serde::{Serialize, Deserialize};
 use types::protos::media_packet::MediaPacket;
-use web_sys::{EncodedAudioChunkInit, EncodedAudioChunk, EncodedVideoChunk, EncodedVideoChunkInit};
+use web_sys::{EncodedVideoChunk, EncodedVideoChunkInit};
 
 use crate::wrappers::EncodedVideoChunkTypeWrapper;
 #[derive(Serialize, Deserialize, Clone, PartialEq)]

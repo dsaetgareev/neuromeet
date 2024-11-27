@@ -7,8 +7,6 @@ use videocall_client::request_permissions;
 use yew::suspense::use_future;
 use crate::{constants::VIDEO_ELEMENT_ID, stores::media_store::{MediaMsg, MediaStore}};
 
-use super::VideoButton;
-
 pub struct DeviceSelector {
     media_devices: MediaDeviceList,
 }

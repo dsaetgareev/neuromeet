@@ -1,3 +1,4 @@
+use super::audio::Audio;
 use super::hash_map_with_ordered_keys::HashMapWithOrderedKeys;
 use super::video::Video;
 use log::debug;
@@ -12,7 +13,7 @@ use yew::prelude::Callback;
 
 use crate::crypto::aes::Aes128State;
 
-use super::peer_decoder::{AudioPeerDecoder, DecodeStatus, PeerDecode, VideoPeerDecoder};
+use super::peer_decoder::DecodeStatus;
 
 #[derive(Debug)]
 pub enum PeerDecodeError {
@@ -53,7 +54,7 @@ impl Display for PeerDecodeError {
 
 #[derive(Debug)]
 pub struct Peer {
-    pub audio: AudioPeerDecoder,
+    pub audio: Audio,
     pub video: Video,
     pub screen: Video,
     pub email: String,
@@ -70,7 +71,7 @@ impl Peer {
         email: String,
         aes: Option<Aes128State>,
     ) -> Self {
-        let (audio, video, screen) = Self::new_decoders(&video_canvas_id, &screen_canvas_id);
+        let (audio, video, screen) = Self::new_decoders();
         Self {
             audio,
             video,
@@ -83,12 +84,9 @@ impl Peer {
         }
     }
 
-    fn new_decoders(
-        video_canvas_id: &str,
-        screen_canvas_id: &str,
-    ) -> (AudioPeerDecoder, Video, Video) {
+    fn new_decoders() -> (Audio, Video, Video) {
         (
-            AudioPeerDecoder::new(),
+            Audio::new(),
             Video::new(),
             Video::new(),
         )
@@ -96,7 +94,7 @@ impl Peer {
 
     fn reset(&mut self) {
         let (audio, video, screen) =
-            Self::new_decoders(&self.video_canvas_id, &self.screen_canvas_id);
+            Self::new_decoders();
         self.audio = audio;
         self.video = video;
         self.screen = screen;
@@ -115,7 +113,7 @@ impl Peer {
             return Err(PeerDecodeError::IncorrectPacketType);
         }
 
-        let packet = match self.aes {
+        let parse_packet = match self.aes {
             Some(aes) => {
                 let data = aes
                     .decrypt(&packet.data)
@@ -125,7 +123,7 @@ impl Peer {
             None => parse_media_packet(&packet.data)?,
         };
 
-        let media_type = packet
+        let media_type = parse_packet
             .media_type
             .enum_value()
             .map_err(|_| PeerDecodeError::NoMediaType)?;
@@ -133,20 +131,20 @@ impl Peer {
             MediaType::VIDEO => Ok((
                 media_type,
                 self.video
-                    .decode(packet)
+                    .decode(&packet.data)
                     .map_err(|_| PeerDecodeError::VideoDecodeError)?,
             )),
             MediaType::AUDIO => Ok((
                 media_type,
                 self.audio
-                    .decode(&packet)
+                    .decode(&packet.data)
                     .map_err(|_| PeerDecodeError::AudioDecodeError)?,
             )),
             MediaType::SCREEN => {
                 Ok((
                 media_type,
                 self.screen
-                    .decode(packet)
+                    .decode(&packet.data)
                     .map_err(|_| PeerDecodeError::ScreenDecodeError)?,
                 ))
             },

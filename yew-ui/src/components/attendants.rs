@@ -96,15 +96,16 @@ pub fn video_component(props: &ItemPorps) -> Html {
         <div class="bg-gray-700 shadow-2xl rounded-xl p-4 flex flex-col items-center">
             <p>{ key.clone() }</p>
             <video class="rounded-lg w-32 h-32 mb-2" ref={video_ref} autoplay=true />
-            {
-                if media_state.is_screen_share() {
-                    html! {
-                        <video class="rounded-lg w-32 h-32 mb-2" ref={screen_ref} autoplay=true />
-                    }
-                } else {
-                    html!(<></>)
-                }
-            }
+            <video class="rounded-lg w-32 h-32 mb-2" ref={screen_ref} autoplay=true />
+            // {
+            //     if media_state.is_screen_share() {
+            //         html! {
+            //             <video class="rounded-lg w-32 h-32 mb-2" ref={screen_ref} autoplay=true />
+            //         }
+            //     } else {
+            //         html!(<></>)
+            //     }
+            // }
         </div> 
     }
 }
