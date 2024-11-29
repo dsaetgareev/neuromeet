@@ -8,8 +8,11 @@ use web_sys::{
     EncodedAudioChunk, EncodedAudioChunkInit, EncodedAudioChunkType
 };
 
+use crate::decode::{parse_media_packet, Decode, DecodeStatus};
+
 use super::PeerDecode;
 
+#[derive(Clone, Debug)]
 pub struct AudioWorkerDecoder {
     audio_decoder: AudioDecoder
 }
@@ -48,6 +51,17 @@ impl AudioWorkerDecoder {
 impl PeerDecode for AudioWorkerDecoder {
     fn decode(&mut self, packet: Arc<MediaPacket>) {
         self.decode(packet);
+    }
+}
+
+impl Decode for AudioWorkerDecoder {
+    fn decode(&mut self, packet: &Vec<u8>) -> Result<crate::decode::DecodeStatus, anyhow::Error>  {
+        let packet = parse_media_packet(&packet).expect("cannot parse media packet");
+        self.decode(packet);
+        Ok(DecodeStatus {
+            _rendered: true,
+            first_frame: true
+        })
     }
 }
 

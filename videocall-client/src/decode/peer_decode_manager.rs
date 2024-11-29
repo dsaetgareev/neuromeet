@@ -1,4 +1,5 @@
 use super::audio::Audio;
+use super::decoder_utils::ThreadType;
 use super::hash_map_with_ordered_keys::HashMapWithOrderedKeys;
 use super::video::Video;
 use log::debug;
@@ -86,9 +87,9 @@ impl Peer {
 
     fn new_decoders() -> (Audio, Video, Video) {
         (
-            Audio::new(),
-            Video::new(),
-            Video::new(),
+            Audio::new(ThreadType::Multithread),
+            Video::new(ThreadType::Multithread),
+            Video::new(ThreadType::Multithread),
         )
     }
 

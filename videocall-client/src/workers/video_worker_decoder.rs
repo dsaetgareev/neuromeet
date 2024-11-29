@@ -4,14 +4,16 @@ use types::protos::media_packet::MediaPacket;
 use wasm_bindgen::JsValue;
 use web_sys::{CodecState, EncodedVideoChunk, EncodedVideoChunkInit, EncodedVideoChunkType, VideoDecoder, VideoDecoderConfig, WritableStream};
 
+use crate::decode::parse_media_packet;
+use crate::decode::Decode;
 use crate::decode::DecodeStatus;
-use crate::decode::create_video_decoder_for_worker;
+use crate::decode::configure_video_decoder_for_worker;
 
 use super::PeerDecode;
 use crate::wrappers::EncodedVideoChunkTypeWrapper;
-const MAX_BUFFER_SIZE: usize = 100;
+const MAX_BUFFER_SIZE: usize = 51;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct VideoWorkerDecoder {
     cache: BTreeMap<u64, Arc<MediaPacket>>,
     video_decoder: VideoDecoder,
@@ -94,7 +96,7 @@ impl VideoWorkerDecoder {
                 web_sys::console::log_1(&JsValue::from_str("video decoder closed"));
                 self.require_key = true;
 
-                let (video_decoder, video_config) = create_video_decoder_for_worker(self.writable.clone());
+                let (video_decoder, video_config) = configure_video_decoder_for_worker(self.writable.clone());
                 self.video_decoder = video_decoder;
                 self.video_config = video_config;
                 self.video_decoder.configure(&self.video_config);
@@ -155,5 +157,12 @@ pub fn get_encoded_video_chunk_from_data(video_data: Arc<MediaPacket>) -> Encode
 impl PeerDecode for VideoWorkerDecoder {
     fn decode(&mut self, packet: Arc<MediaPacket>) {
         let _ = self.decode(packet);
+    }
+}
+
+impl Decode for VideoWorkerDecoder {
+    fn decode(&mut self, packet: &Vec<u8>) -> Result<DecodeStatus, anyhow::Error> {
+        let packet = parse_media_packet(&packet).expect("cannot parse media packet");
+        self.decode(packet)
     }
 }

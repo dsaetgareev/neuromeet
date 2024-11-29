@@ -14,3 +14,4 @@ pub use worker_factory::worker_new;
 pub use worker_wrapper::worker_start;
 
 pub use audio_worker_decoder::AudioWorkerDecoder;
+pub use video_worker_decoder::VideoWorkerDecoder;

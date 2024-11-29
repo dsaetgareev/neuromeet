@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
-use protobuf::Message;
 use types::protos::media_packet::MediaPacket;
 use web_sys::WritableStream;
 
-use crate::decode::{configure_audio_decoder_for_worker, create_video_decoder_for_worker, PeerDecodeError};
+use crate::decode::{configure_audio_decoder_for_worker, configure_video_decoder_for_worker, parse_media_packet};
 
 use super::{video_worker_decoder::VideoWorkerDecoder, AudioWorkerDecoder};
 
@@ -43,7 +42,7 @@ impl WorkerHandler {
                 self.worker_decoder = Some(Box::new(audio_worker_decoder));
             },
             DecoderType::Video => {
-                let (video_decoder, video_config) = create_video_decoder_for_worker(writable.clone());
+                let (video_decoder, video_config) = configure_video_decoder_for_worker(writable.clone());
                 let video_worker_decoder = VideoWorkerDecoder::new(video_decoder, video_config, writable);
                 self.worker_decoder = Some(Box::new(video_worker_decoder));
             },
@@ -62,12 +61,5 @@ impl WorkerHandler {
             self.init(writable.clone());
         }
     }
-}
-
-
-fn parse_media_packet(data: &[u8]) -> Result<Arc<MediaPacket>, PeerDecodeError> {
-    Ok(Arc::new(
-        MediaPacket::parse_from_bytes(data).map_err(|_| PeerDecodeError::PacketParseError)?,
-    ))
 }
     

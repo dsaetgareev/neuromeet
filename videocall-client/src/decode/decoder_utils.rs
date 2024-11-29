@@ -1,3 +1,6 @@
+use std::{fmt::Debug, sync::Arc};
+use protobuf::Message;
+use types::protos::media_packet::MediaPacket;
 use wasm_bindgen::{prelude::Closure, JsValue, JsCast };
 use wasm_bindgen_futures::JsFuture;
 use log::error;
@@ -8,14 +11,21 @@ use js_sys::Array;
 
 use crate::constants::{AUDIO_CHANNELS, AUDIO_CODEC, AUDIO_SAMPLE_RATE, VIDEO_CODEC};
 
-use super::config::configure_audio_context;
+use super::{config::configure_audio_context, DecodeStatus, PeerDecodeError};
 
+pub trait Decode: Debug {
+    fn decode(&mut self, packet: &Vec<u8>) -> Result<DecodeStatus, anyhow::Error> ; 
+}
 
-pub fn _create_video_decoder(video_elem_id: &str) -> (VideoDecoder, VideoDecoderConfig, MediaStream) {
-    let error_id = video_elem_id.to_string();
+#[warn(dead_code)]
+pub enum ThreadType {
+    Single,
+    Multithread
+}
+
+pub fn configure_video_decoder() -> (VideoDecoder, VideoDecoderConfig, MediaStream, WritableStream) {
     let error_video = Closure::wrap(Box::new(move |e: JsValue| {
         error!("{:?}", e);
-        error!("error from id: {}", error_id);
     }) as Box<dyn FnMut(JsValue)>);
 
     let video_stream_generator =
@@ -24,10 +34,11 @@ pub fn _create_video_decoder(video_elem_id: &str) -> (VideoDecoder, VideoDecoder
     js_tracks.push(&video_stream_generator);
     let media_stream = MediaStream::new_with_tracks(&js_tracks).unwrap();
 
+    let writable_stream = video_stream_generator.writable();
+    let writable = writable_stream.clone();
     let output = Closure::wrap(Box::new(move |original_chunk: JsValue| {
         let chunk = Box::new(original_chunk);
         let video_chunk = chunk.clone().unchecked_into::<HtmlVideoElement>();              
-        let writable = video_stream_generator.writable();
         if writable.locked() {
             return;
         }
@@ -54,10 +65,10 @@ pub fn _create_video_decoder(video_elem_id: &str) -> (VideoDecoder, VideoDecoder
     output.forget();
     let video_config = VideoDecoderConfig::new(&VIDEO_CODEC); 
     local_video_decoder.configure(&video_config);
-    (local_video_decoder, video_config, media_stream)
+    (local_video_decoder, video_config, media_stream, writable_stream)
 }
 
-pub fn create_video_decoder_for_worker(writable: WritableStream) -> (VideoDecoder, VideoDecoderConfig) {
+pub fn configure_video_decoder_for_worker(writable: WritableStream) -> (VideoDecoder, VideoDecoderConfig) {
     
     let error_video = Closure::wrap(Box::new(move |e: JsValue| {
         log::error!("{:?}", e);
@@ -141,7 +152,7 @@ pub fn configure_audio_decoder_for_worker(writable: WritableStream) -> AudioDeco
     decoder
 }
 
-pub fn create_video_stream() -> (MediaStream, MediaStreamTrackGenerator) {
+pub fn configure_video_stream() -> (MediaStream, MediaStreamTrackGenerator) {
     let video_stream_generator =
         MediaStreamTrackGenerator::new(&MediaStreamTrackGeneratorInit::new("video")).unwrap();
     let js_tracks = Array::new();
@@ -150,9 +161,15 @@ pub fn create_video_stream() -> (MediaStream, MediaStreamTrackGenerator) {
     (media_stream, video_stream_generator)
 }
 
-pub fn create_audio_stream() ->  MediaStreamTrackGenerator {
+pub fn configure_audio_stream() ->  MediaStreamTrackGenerator {
     let audio_stream_generator =
         MediaStreamTrackGenerator::new(&MediaStreamTrackGeneratorInit::new("audio")).unwrap();
     let _audio_context = configure_audio_context(&audio_stream_generator).unwrap();
     audio_stream_generator
+}
+
+pub fn parse_media_packet(data: &[u8]) -> Result<Arc<MediaPacket>, PeerDecodeError> {
+    Ok(Arc::new(
+        MediaPacket::parse_from_bytes(data).map_err(|_| PeerDecodeError::PacketParseError)?,
+    ))
 }

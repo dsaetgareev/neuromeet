@@ -4,6 +4,8 @@ use js_sys::{wasm_bindgen::{prelude::Closure, JsCast}, Array, Uint8Array};
 use crate::workers::worker_new;
 use crate::decode::DecodeStatus;
 
+use super::Decode;
+
 #[derive(PartialEq, Debug)]
 pub struct WorkerDecoder {
     worker: Worker
@@ -51,5 +53,11 @@ impl WorkerDecoder {
         })
     }
     
+}
+
+impl Decode for WorkerDecoder {
+    fn decode(&mut self, packet: &Vec<u8>) -> Result<DecodeStatus, anyhow::Error> {
+        self.decode(&packet)
+    }
 }
 

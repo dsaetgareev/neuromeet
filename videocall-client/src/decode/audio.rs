@@ -1,18 +1,38 @@
-use super::{create_audio_stream, peer_decoder::DecodeStatus, WorkerDecoder};
+use std::fmt::Debug;
+
+use crate::workers::AudioWorkerDecoder;
+
+use super::{configure_audio_decoder_for_worker, configure_audio_stream, decoder_utils::ThreadType, peer_decoder::DecodeStatus, Decode, WorkerDecoder};
 
 
-#[derive(PartialEq, Debug)]
 pub struct Audio {
-    pub decoder: WorkerDecoder,
+    pub decoder: Box<dyn Decode>,
+}
+
+impl Debug for Audio {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Audio").field("decoder", &self.decoder).finish()
+    }
 }
 
 
 impl Audio {
-    pub fn new() -> Self {
-        let audio_stream_generator = create_audio_stream();
+    pub fn new(thread_type: ThreadType) -> Self {
+        let audio_stream_generator = configure_audio_stream();
         let writable = audio_stream_generator.writable();
-        let ws  = writable.clone();
-        let decoder = WorkerDecoder::new("a_worker", ws);
+
+        let decoder: Box<dyn Decode> = match thread_type {
+            ThreadType::Single => {
+                let audio_decoder = configure_audio_decoder_for_worker(writable);
+                let decoder = AudioWorkerDecoder::new(audio_decoder);
+                Box::new(decoder)
+            },
+            ThreadType::Multithread => {
+                let decoder = WorkerDecoder::new("a_worker", writable);
+                Box::new(decoder)
+            },
+        };
+
         Self {
             decoder
         }
