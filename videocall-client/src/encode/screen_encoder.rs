@@ -1,108 +1,70 @@
-use std::rc::Rc;
-use std::sync::atomic::Ordering;
 use gloo_utils::window;
 use js_sys::Array;
-use js_sys::JsString;
-use js_sys::Reflect;
-use log::error;
-use types::protos::packet_wrapper::PacketWrapper;
-use wasm_bindgen::prelude::Closure;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::LatencyMode;
 use web_sys::MediaStream;
 use web_sys::MediaStreamTrack;
 use web_sys::MediaStreamTrackProcessor;
 use web_sys::MediaStreamTrackProcessorInit;
-use web_sys::ReadableStreamDefaultReader;
-use web_sys::VideoEncoder;
-use web_sys::VideoEncoderConfig;
-use web_sys::VideoEncoderEncodeOptions;
-use web_sys::VideoEncoderInit;
-use web_sys::VideoFrame;
+use web_sys::ReadableStream;
 use web_sys::VideoTrack;
 
-use super::encoder_state::EncoderState;
-use super::transform::transform_screen_chunk;
+use super::device_state::DeviceState;
+use super::ReadableType;
+use super::Sender;
 
-use crate::constants::SCREEN_HEIGHT;
-use crate::constants::SCREEN_WIDTH;
-use crate::constants::VIDEO_CODEC;
-use crate::crypto::aes::Aes128State;
-
-/// [ScreenEncoder] encodes the user's screen and sends it through a [`VideoCallClient`](crate::VideoCallClient) connection.
-///
-/// See also:
-/// * [CameraEncoder](crate::CameraEncoder)
-/// * [MicrophoneEncoder](crate::MicrophoneEncoder)
-///
 #[derive(Clone, PartialEq)]
 pub struct ScreenEncoder {
-    state: EncoderState,
+    state: DeviceState,
+    media_track: Option<MediaStreamTrack>,
+    readable_stream: Option<ReadableStream>,
 }
 
 impl ScreenEncoder {
-    /// Construct a screen encoder:
-    ///
-    /// * `client` - an instance of a [`VideoCallClient`](crate::VideoCallClient).  It does not need to be currently connected.
-    ///
-    /// The encoder is created in a disabled state, [`encoder.set_enabled(true)`](Self::set_enabled) must be called before it can start encoding.
     pub fn new() -> Self {
         Self {
-            state: EncoderState::new(),
+            state: DeviceState::new(),
+            media_track: None,
+            readable_stream: None,
         }
     }
 
-    // The next two methods delegate to self.state
+    pub fn set_media_track(&mut self, readable_stream: ReadableStream, media_track: MediaStreamTrack) {
+        self.media_track = Some(media_track);
+        self.readable_stream = Some(readable_stream);
+    }
 
-    /// Enables/disables the encoder.   Returns true if the new value is different from the old value.
-    ///
-    /// The encoder starts disabled, [`encoder.set_enabled(true)`](Self::set_enabled) must be
-    /// called prior to starting encoding.
-    ///
-    /// Disabling encoding after it has started will cause it to stop.
+    pub fn get_enabled(&self) -> bool {
+        self.state.is_enabled()
+    }
+
     pub fn set_enabled(&mut self, value: bool) -> bool {
         self.state.set_enabled(value)
     }
 
-    /// Stops encoding after it has been started.
     pub fn stop(&mut self) {
-        self.state.stop()
+        if let Some(meida_track) = &self.media_track {
+            meida_track.stop();
+        }
+        if let Some(readable_stream) = &self.readable_stream {
+            let _ = readable_stream.cancel();
+        }
     }
 
-    /// Start encoding and sending the data to the client connection (if it's currently connected).
-    /// The user is prompted by the browser to select which window or screen to encode.
-    ///
-    /// This will not do anything if [`encoder.set_enabled(true)`](Self::set_enabled) has not been
-    /// called.
+    pub fn switch_enabled(&mut self) -> bool {
+        let is_enabled = self.get_enabled();
+        self.set_enabled(!is_enabled); 
+        is_enabled
+    }
+
     pub fn start(
         &mut self,
-        on_frame: impl Fn(PacketWrapper) + 'static,
-        user_id: String,
-        aes: Rc<Aes128State>
+        sender: Box<dyn Sender>
     ) {
-        let EncoderState {
-            enabled, destroy, ..
-        } = self.state.clone();
-        let userid = user_id;
-        let aes = aes;
-        let screen_output_handler = {
-            let mut buffer: [u8; 150000] = [0; 150000];
-            let mut sequence_number = 0;
-            Box::new(move |chunk: JsValue| {
-                let chunk = web_sys::EncodedVideoChunk::from(chunk);
-                let packet: PacketWrapper = transform_screen_chunk(
-                    chunk,
-                    sequence_number,
-                    &mut buffer,
-                    &userid,
-                    aes.clone(),
-                );
-                on_frame(packet);
-                sequence_number += 1;
-            })
-        };
+
+        self.stop();
+
         wasm_bindgen_futures::spawn_local(async move {
             let navigator = window().navigator();
             let media_devices = navigator.media_devices().unwrap();
@@ -120,64 +82,18 @@ impl ScreenEncoder {
                     .unchecked_into::<VideoTrack>(),
             );
 
-            let screen_error_handler = Closure::wrap(Box::new(move |e: JsValue| {
-                error!("error_handler error {:?}", e);
-            }) as Box<dyn FnMut(JsValue)>);
-
-            let screen_output_handler =
-                Closure::wrap(screen_output_handler as Box<dyn FnMut(JsValue)>);
-
-            let screen_encoder_init = VideoEncoderInit::new(
-                screen_error_handler.as_ref().unchecked_ref(),
-                screen_output_handler.as_ref().unchecked_ref(),
-            );
-
-            let screen_encoder = Box::new(VideoEncoder::new(&screen_encoder_init).unwrap());
-            let mut screen_encoder_config =
-                VideoEncoderConfig::new(VIDEO_CODEC, SCREEN_HEIGHT, SCREEN_WIDTH);
-            screen_encoder_config.bitrate(64_000f64);
-            screen_encoder_config.latency_mode(LatencyMode::Realtime);
-            screen_encoder.configure(&screen_encoder_config);
-
             let screen_processor =
                 MediaStreamTrackProcessor::new(&MediaStreamTrackProcessorInit::new(
-                    &screen_track.unchecked_into::<MediaStreamTrack>(),
+                    &screen_track.clone().unchecked_into::<MediaStreamTrack>(),
                 ))
                 .unwrap();
 
-            let screen_reader = screen_processor
-                .readable()
-                .get_reader()
-                .unchecked_into::<ReadableStreamDefaultReader>();
-
-            let mut screen_frame_counter = 0;
-
-            let poll_screen = async {
-                loop {
-                    if destroy.load(Ordering::Acquire) {
-                        return;
-                    }
-                    if !enabled.load(Ordering::Acquire) {
-                        return;
-                    }
-                    match JsFuture::from(screen_reader.read()).await {
-                        Ok(js_frame) => {
-                            let video_frame = Reflect::get(&js_frame, &JsString::from("value"))
-                                .unwrap()
-                                .unchecked_into::<VideoFrame>();
-                            let mut opts = VideoEncoderEncodeOptions::new();
-                            screen_frame_counter = (screen_frame_counter + 1) % 50;
-                            opts.key_frame(screen_frame_counter == 0);
-                            screen_encoder.encode_with_options(&video_frame, &opts);
-                            video_frame.close();
-                        }
-                        Err(e) => {
-                            error!("error {:?}", e);
-                        }
-                    }
-                }
-            };
-            poll_screen.await;
+            let screen_readable = screen_processor
+                .readable();
+            let media_track = &screen_track
+                .clone()
+                .unchecked_into::<MediaStreamTrack>();
+            sender.send_readable(ReadableType::Screen, screen_readable, media_track.clone());
         });
     }
 }

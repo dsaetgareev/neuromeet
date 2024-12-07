@@ -127,7 +127,6 @@ impl VideoWorkerDecoder {
                     if let Some(next_image) = self.cache.get(current_sequence) {
                         let encoded_video_chunk = get_encoded_video_chunk(next_image.clone());
                         let _ = self.video_decoder.decode(&encoded_video_chunk);
-                        // self.decode_packet(next_image.clone());
                         self.sequence = Some(next_sequence);
                     }
                 }
@@ -145,7 +144,6 @@ pub fn get_encoded_video_chunk(packet: Arc<MediaPacket>) -> EncodedVideoChunk {
 pub fn get_encoded_video_chunk_from_data(video_data: Arc<MediaPacket>) -> EncodedVideoChunk {
     let data = Uint8Array::from(video_data.data.as_ref());
     let chunk_type = EncodedVideoChunkTypeWrapper::from(video_data.frame_type.as_str()).0;
-    // let chunk_type = EncodedVideoChunkTypeWrapper::from(video_data.chunk_type.as_str()).0;
     let mut encoded_chunk_init = EncodedVideoChunkInit::new(&data, video_data.timestamp, chunk_type);
     encoded_chunk_init.duration(video_data.duration);
     let encoded_video_chunk = EncodedVideoChunk::new(

@@ -17,13 +17,38 @@ pub trait Decode: Debug {
     fn decode(&mut self, packet: &Vec<u8>) -> Result<DecodeStatus, anyhow::Error> ; 
 }
 
-#[warn(dead_code)]
+pub struct FakeDecoder {
+
+}
+
+impl FakeDecoder {
+    pub fn new() -> Self {
+        Self {  }
+    }
+}
+
+impl Decode for FakeDecoder {
+    fn decode(&mut self, _packet: &Vec<u8>) -> Result<DecodeStatus, anyhow::Error>  {
+        Ok(DecodeStatus {
+            _rendered: true,
+            first_frame: true
+        })
+    }
+}
+
+impl Debug for FakeDecoder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FakeDecoder").finish()
+    }
+}
+
+#[derive(Debug)]
 pub enum ThreadType {
     Single,
     Multithread
 }
 
-pub fn configure_video_decoder() -> (VideoDecoder, VideoDecoderConfig, MediaStream, WritableStream) {
+pub fn _configure_video_decoder() -> (VideoDecoder, VideoDecoderConfig, MediaStream, WritableStream) {
     let error_video = Closure::wrap(Box::new(move |e: JsValue| {
         error!("{:?}", e);
     }) as Box<dyn FnMut(JsValue)>);

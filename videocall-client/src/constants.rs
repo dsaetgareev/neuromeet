@@ -11,8 +11,8 @@ pub static VIDEO_CODEC: &str = "vp09.00.10.08"; // profile 0,level 1.0, bit dept
 // 08 bit depth = 8 bits
 
 pub const AUDIO_CHANNELS: u32 = 1u32;
-pub const AUDIO_SAMPLE_RATE: u32 = 48000u32;
-pub const AUDIO_BITRATE: f64 = 50000f64;
+pub const AUDIO_SAMPLE_RATE: u32 = 32000u32;
+pub const AUDIO_BITRATE: f64 = 16000f64;
 
 // vga resolution
 // pub const VIDEO_HEIGHT: i32 = 480i32;
@@ -24,3 +24,7 @@ pub const SCREEN_HEIGHT: u32 = 1080u32;
 pub const SCREEN_WIDTH: u32 = 1920u32;
 
 pub const RSA_BITS: usize = 1024;
+
+pub const ACTIX_WEBSOCKET: &str =  "ws://localhost:8080/lobby";
+// pub const WEBTRANSPORT_HOST: &str =  "https://live-lesson.ru:4433/lobby";
+pub const WEBTRANSPORT_HOST: &str =  "https://127.0.0.1:4433/lobby";

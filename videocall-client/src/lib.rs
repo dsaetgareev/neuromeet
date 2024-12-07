@@ -81,6 +81,10 @@ pub mod errors;
 pub mod workers;
 
 pub use client::{VideoCallClient, VideoCallClientOptions};
-pub use encode::{CameraEncoder, MicrophoneEncoder, ScreenEncoder};
+pub use encode::{CameraDevice, MicrophoneEncoder, ScreenEncoder};
 pub use media_devices::{MediaDeviceAccess, MediaDeviceList, SelectableDevices, request_permissions};
 pub use workers::WorkerHandler;
+pub use decode::configure_audio_stream;
+pub use decode::configure_video_stream;
+pub use encode::Sender;
+pub use encode::ReadableType;

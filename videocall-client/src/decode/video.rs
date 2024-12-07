@@ -1,43 +1,45 @@
 use std::fmt::Debug;
 
-use web_sys::MediaStream;
+use web_sys::WritableStream;
 
 use crate::workers::VideoWorkerDecoder;
 
-use super::{configure_video_stream, decoder_utils::{configure_video_decoder, ThreadType}, peer_decoder::DecodeStatus, Decode, WorkerDecoder};
+use super::{configure_video_decoder_for_worker, decoder_utils::ThreadType, peer_decoder::DecodeStatus, Decode, FakeDecoder, WorkerDecoder};
 
 
 pub struct Video {
-    pub media_stream: MediaStream,
+    thread_type: ThreadType,
     pub decoder: Box<dyn Decode>,
 }
 
 impl Debug for Video {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Video").field("media_stream", &self.media_stream).field("decoder", &self.decoder).finish()
+        f.debug_struct("Video").field("thread_type", &self.thread_type).field("decoder", &self.decoder).finish()
     }
 }
 
 impl Video {
-    pub fn new(video_type: ThreadType) -> Self {
-        let (decoder, media_stream): (Box<dyn Decode>, MediaStream) = match video_type {
+    pub fn new(thread_type: ThreadType) -> Self {
+        let decoder = Box::new(FakeDecoder::new());
+        Self {
+            thread_type,
+            decoder,
+        }
+    }
+
+    pub fn set_media(&mut self, origin_url: &str, video_ws: WritableStream) {
+        let decoder: Box<dyn Decode> = match self.thread_type {
             ThreadType::Single => {
-                let (video_decoder, video_config, media_stream, writable) = configure_video_decoder();   
-                let decoder = VideoWorkerDecoder::new(video_decoder, video_config, writable);
-                (Box::new(decoder), media_stream)
+                let (video_decoder, video_config) = configure_video_decoder_for_worker(video_ws.clone());
+                let decoder = VideoWorkerDecoder::new(video_decoder, video_config, video_ws);
+                Box::new(decoder)
             },
             ThreadType::Multithread => {
-                let (media_stream, media_stream_generator) = configure_video_stream();
-                let writable = media_stream_generator.writable();
-                let ws  = writable.clone();
-                let decoder = WorkerDecoder::new("v_worker", ws);
-                (Box::new(decoder), media_stream)
+                let decoder = WorkerDecoder::new(origin_url, "v_worker", video_ws);
+                Box::new(decoder)
             },
         };
-        Self {
-            media_stream,
-            decoder
-        }
+        self.decoder = decoder;
     }
 
     pub fn decode(&mut self, media_packet: &Vec<u8>) -> Result<DecodeStatus, anyhow::Error> {

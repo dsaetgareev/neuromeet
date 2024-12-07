@@ -1,31 +1,35 @@
 use gloo_utils::window;
 use js_sys::Array;
 use js_sys::Boolean;
-use web_sys::ReadableStream;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::AudioTrack;
+use web_sys::HtmlVideoElement;
 use web_sys::MediaStream;
 use web_sys::MediaStreamConstraints;
 use web_sys::MediaStreamTrack;
 use web_sys::MediaStreamTrackProcessor;
 use web_sys::MediaStreamTrackProcessorInit;
+use web_sys::ReadableStream;
+use web_sys::VideoTrack;
 
 use super::device_state::DeviceState;
 use super::ReadableType;
 use super::Sender;
 
 #[derive(Clone, PartialEq)]
-pub struct MicrophoneEncoder {
+pub struct CameraDevice {
+    video_elem_id: String,
     state: DeviceState,
     media_track: Option<MediaStreamTrack>,
     readable_stream: Option<ReadableStream>,
 }
 
-impl MicrophoneEncoder {
-    pub fn new() -> Self {
+impl CameraDevice {
+
+    pub fn new(video_elem_id: &str) -> Self {
         Self {
+            video_elem_id: video_elem_id.to_string(),
             state: DeviceState::new(),
             media_track: None,
             readable_stream: None,
@@ -41,21 +45,19 @@ impl MicrophoneEncoder {
         self.state.set_enabled(value)
     }
 
+    pub fn select(&mut self, device_id: String) -> bool {
+        self.state.select(device_id)
+    }
+
     pub fn get_enabled(&self) -> bool {
         self.state.is_enabled()
     }
 
-    pub fn select(&mut self, device: String) -> bool {
-        self.state.select(device)
-    }
-
     pub fn stop(&mut self) {
         if let Some(meida_track) = &self.media_track {
-            web_sys::console::log_1(&"media_track stop".into());
             meida_track.stop();
         }
         if let Some(readable_stream) = &self.readable_stream {
-            web_sys::console::log_1(&"readable_stream stop".into());
             let _ = readable_stream.cancel();
         }
     }
@@ -66,24 +68,31 @@ impl MicrophoneEncoder {
         is_enabled
     }
 
-    pub fn start(&mut self, sender: Box<dyn Sender>) {
+    pub fn start(&mut self, sender: Box<dyn Sender>)  {
         self.stop();
-        let device_id = if let Some(mic) = &self.state.selected {
-            mic.to_string()
+        let video_elem_id = self.video_elem_id.clone();
+        let device_id = if let Some(vid) = &self.state.selected {
+            vid.to_string()
         } else {
             return;
         };
-
         wasm_bindgen_futures::spawn_local(async move {
             let navigator = window().navigator();
+            let video_element = window()
+                .document()
+                .unwrap()
+                .get_element_by_id(&video_elem_id)
+                .unwrap()
+                .unchecked_into::<HtmlVideoElement>();
+
             let media_devices = navigator.media_devices().unwrap();
-            // TODO: Add dropdown so that user can select the device that they want to use.
             let mut constraints = MediaStreamConstraints::new();
             let mut media_info = web_sys::MediaTrackConstraints::new();
             media_info.device_id(&device_id.into());
 
-            constraints.audio(&media_info.into());
-            constraints.video(&Boolean::from(false));
+            constraints.video(&media_info.into());
+            constraints.audio(&Boolean::from(false));
+
             let devices_query = media_devices
                 .get_user_media_with_constraints(&constraints)
                 .unwrap();
@@ -91,23 +100,26 @@ impl MicrophoneEncoder {
                 .await
                 .unwrap()
                 .unchecked_into::<MediaStream>();
+            video_element.set_src_object(Some(&device));
+            video_element.set_muted(true);
 
-            let audio_track = Box::new(
+            let video_track = Box::new(
                 device
-                    .get_audio_tracks()
+                    .get_video_tracks()
                     .find(&mut |_: JsValue, _: u32, _: Array| true)
-                    .unchecked_into::<AudioTrack>(),
+                    .unchecked_into::<VideoTrack>(),
             );
 
-            let audio_processor =
+            let video_processor =
                 MediaStreamTrackProcessor::new(&MediaStreamTrackProcessorInit::new(
-                    &audio_track.clone().unchecked_into::<MediaStreamTrack>(),
+                    &video_track.clone().unchecked_into::<MediaStreamTrack>(),
                 ))
                 .unwrap();
-            let audio_readable = audio_processor.readable();
-            let media_track = &audio_track.clone().unchecked_into::<MediaStreamTrack>();
-            sender.send_readable(ReadableType::Audio, audio_readable, media_track.clone());
+            let video_reader = video_processor.readable();
+            let media_track = video_track
+                .clone()
+                .unchecked_into::<MediaStreamTrack>();
+            sender.send_readable(ReadableType::Video, video_reader, media_track);
         });
     }
-
 }

@@ -1,11 +1,14 @@
 use std::fmt::Debug;
 
+use web_sys::WritableStream;
+
 use crate::workers::AudioWorkerDecoder;
 
-use super::{configure_audio_decoder_for_worker, configure_audio_stream, decoder_utils::ThreadType, peer_decoder::DecodeStatus, Decode, WorkerDecoder};
+use super::{configure_audio_decoder_for_worker, decoder_utils::ThreadType, peer_decoder::DecodeStatus, Decode, FakeDecoder, WorkerDecoder};
 
 
 pub struct Audio {
+    thread_type: ThreadType,
     pub decoder: Box<dyn Decode>,
 }
 
@@ -18,24 +21,27 @@ impl Debug for Audio {
 
 impl Audio {
     pub fn new(thread_type: ThreadType) -> Self {
-        let audio_stream_generator = configure_audio_stream();
-        let writable = audio_stream_generator.writable();
+        let decoder = Box::new(FakeDecoder::new());
+        Self {
+            thread_type,
+            decoder,
+        }
+    }
 
-        let decoder: Box<dyn Decode> = match thread_type {
+    pub fn set_media(&mut self, origin_url: &str, audio_ws: WritableStream) {
+
+        let decoder: Box<dyn Decode> = match self.thread_type {
             ThreadType::Single => {
-                let audio_decoder = configure_audio_decoder_for_worker(writable);
+                let audio_decoder = configure_audio_decoder_for_worker(audio_ws);
                 let decoder = AudioWorkerDecoder::new(audio_decoder);
                 Box::new(decoder)
             },
             ThreadType::Multithread => {
-                let decoder = WorkerDecoder::new("a_worker", writable);
+                let decoder = WorkerDecoder::new(origin_url, "a_worker", audio_ws);
                 Box::new(decoder)
             },
         };
-
-        Self {
-            decoder
-        }
+        self.decoder = decoder;
     }    
 
     pub fn decode(&mut self, media_packet: &Vec<u8>) -> Result<DecodeStatus, anyhow::Error> {

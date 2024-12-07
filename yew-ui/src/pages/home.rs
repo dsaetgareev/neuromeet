@@ -16,8 +16,9 @@ const TEXT_INPUT_CLASSES: &str = "rounded-md mx-2 p-2 text-black required:ring-2
 #[function_component(Home)]
 pub fn home() -> Html {
     let (_state, dispatch) = use_store::<AppStore>();
-    let (_media_state, media_dispatch) = use_store::<MediaStore>();
+    let (media_state, media_dispatch) = use_store::<MediaStore>();
     let navigator = use_navigator().unwrap();
+    let is_agent_started = media_state.is_agent_started();
 
     let username_ref = use_node_ref();
     let session_id = use_state(|| {
@@ -54,7 +55,7 @@ pub fn home() -> Html {
             e.prevent_default();
             let username = username_ref.cast::<HtmlInputElement>().unwrap().value();
             let meeting_id = session_id.to_string();
-            media_dispatch.apply(MediaMsg::ClientInit(username.clone(), meeting_id.clone()));
+            media_dispatch.apply(MediaMsg::ClientConfigure(username.clone(), meeting_id.clone()));
             dispatch.apply(AppMsg::SetName(username));
             dispatch.apply(AppMsg::SetId(meeting_id.clone()));
             navigator.push(&Route::Middleware {
@@ -84,7 +85,13 @@ pub fn home() -> Html {
                 </div>
                 <input type="submit" value="Подключиться" class="py-2 px-4 pointer bg-yew-blue rounded-md w-full cursor-pointer" />
             </form>
-            <PermissionsDevices /> 
+            {
+                if is_agent_started {
+                   html! { <PermissionsDevices /> } 
+                } else {
+                    html!(<></>)
+                }
+            }
         </div>
     }
 }

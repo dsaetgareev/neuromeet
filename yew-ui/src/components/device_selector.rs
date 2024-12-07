@@ -6,6 +6,7 @@ use yewdux::use_store;
 use videocall_client::request_permissions;
 use yew::suspense::use_future;
 use crate::{constants::VIDEO_ELEMENT_ID, stores::media_store::{MediaMsg, MediaStore}};
+use crate::components::VideoButton;
 
 pub struct DeviceSelector {
     media_devices: MediaDeviceList,
@@ -150,7 +151,7 @@ pub fn permissions_devices() -> Html {
                         <Devices />
                         <div>
                             <video class="self-camera" autoplay=true id={VIDEO_ELEMENT_ID}></video>
-                            // <VideoButton />
+                            <VideoButton />
                         </div>      
                     </>
                 }

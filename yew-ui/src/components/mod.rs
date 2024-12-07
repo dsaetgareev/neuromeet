@@ -1,6 +1,5 @@
 pub mod attendants;
 pub mod device_selector;
-pub mod host;
 pub mod icons;
 mod middleware;
 pub mod top_bar;

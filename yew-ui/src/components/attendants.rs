@@ -1,5 +1,5 @@
 use crate::constants::VIDEO_ELEMENT_ID;
-use crate::stores::media_store::{MediaMsg, MediaStore};
+use crate::stores::media_store::MediaStore;
 use web_sys::*;
 use yew::prelude::*;
 use yew::{html, Html};
@@ -9,13 +9,13 @@ use crate::components::{Devices, VideoButton};
 #[function_component(AttendantsFunc)]
 pub fn attendats_func() -> Html {
 
-    let (media_state, media_dispatch) = use_store::<MediaStore>();
-    let ws_client = media_state.get_client();
-    let user_name = ws_client.userid();
-    let peers = ws_client.sorted_peer_keys();
+    let (media_state, _media_dispatch) = use_store::<MediaStore>();
+    let ws_agent = media_state.get_agent();
+    let user_name = ws_agent.get_user_id();
+    let peers = ws_agent.get_peers();
     let rows = || {
         
-        peers.iter()
+        peers.keys()
         .map(|key| {
             html! {
                 <>
@@ -25,12 +25,6 @@ pub fn attendats_func() -> Html {
         }).collect::<Html>()
     };
 
-    use_effect({
-        let media_dispatch = media_dispatch.clone();
-        move || {
-            media_dispatch.apply(MediaMsg::Connect);
-        }
-    });
     html! {
             <div id="main-container">
                 <div id="grid-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-6xl">
@@ -42,7 +36,7 @@ pub fn attendats_func() -> Html {
                 <nav class="host">
                     <Devices />
                     <VideoButton />
-                    <h4 class="floating-name">{(*user_name).clone()}</h4>
+                    <h4 class="floating-name">{user_name}</h4>
 
                     {if !media_state.is_connected() {
                         html! {<h4>{"Connecting"}</h4>}
@@ -76,18 +70,15 @@ pub fn video_component(props: &ItemPorps) -> Html {
     use_effect({
         let video_ref = video_ref.clone();
         let screen_ref = screen_ref.clone();
-        let video_media_stream = media_state.get_client().get_video_media_stream_by_key(key);
-        let screen_media_stream = media_state.get_client().get_screen_media_stream_by_key(key);
+
+        let video_media_stream = media_state.get_agent().get_peers().get(key).unwrap().get_video_ms_cloned();
+        let screen_media_stream = media_state.get_agent().get_peers().get(key).unwrap().get_screen_ms_cloned();
         move || {
             if let Some(video_element) = video_ref.cast::<HtmlVideoElement>() {
-                if let Some(stream) = video_media_stream {
-                    video_element.set_src_object(Some(&stream));
-                }
+                video_element.set_src_object(Some(&video_media_stream));
             }
             if let Some(video_element) = screen_ref.cast::<HtmlVideoElement>() {
-                if let Some(stream) = screen_media_stream {
-                    video_element.set_src_object(Some(&stream));
-                }
+                video_element.set_src_object(Some(&screen_media_stream));
             }
         }
     });

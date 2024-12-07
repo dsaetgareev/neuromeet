@@ -13,8 +13,8 @@ pub struct WorkerDecoder {
 
 impl WorkerDecoder {
 
-    pub fn new(url: &str, writable_stream: WritableStream) -> Self {
-        let worker = worker_new(url);
+    pub fn new(orgign_url: &str, url: &str, writable_stream: WritableStream) -> Self {
+        let worker = worker_new(Some(orgign_url), url);
         let worker_clone = worker.clone();
         let onmessage = Closure::wrap(Box::new(move |msg: MessageEvent| {
             let data = Array::from(&msg.data());

@@ -9,27 +9,12 @@ pub struct HashMapWithOrderedKeys<K: Ord, V> {
     keys: Vec<K>,
 }
 
-//
-// Only implementing the methods that are needed in peer_decode_manager
-//
 impl<K: Ord + Hash + Clone, V> HashMapWithOrderedKeys<K, V> {
     pub fn new() -> Self {
         Self {
             map: HashMap::new(),
             keys: vec![],
         }
-    }
-
-    //
-    // Delegated methods
-    //
-
-    pub fn get<Q>(&self, k: &Q) -> Option<&V>
-    where
-        K: Borrow<Q>,
-        Q: Hash + Eq + ?Sized,
-    {
-        self.map.get(k)
     }
 
     pub fn get_mut<Q>(&mut self, k: &Q) -> Option<&mut V>
@@ -47,10 +32,6 @@ impl<K: Ord + Hash + Clone, V> HashMapWithOrderedKeys<K, V> {
     {
         self.map.contains_key(k)
     }
-
-    //
-    // Delegated methods with extra handling to maintain ordered keys
-    //
 
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
         self.map.insert(k.clone(), v).or_else(|| {
@@ -75,7 +56,7 @@ impl<K: Ord + Hash + Clone, V> HashMapWithOrderedKeys<K, V> {
         &self.keys
     }
 
-    pub fn map(&self) -> &HashMap<K, V> {
+    pub fn _map(&self) -> &HashMap<K, V> {
         &self.map
     }
 

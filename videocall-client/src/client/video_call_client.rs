@@ -7,9 +7,8 @@ use log::{debug, error, info};
 use protobuf::Message;
 use rsa::pkcs8::{DecodePublicKey, EncodePublicKey};
 use rsa::RsaPublicKey;
-use web_sys::MediaStream;
+use web_sys::WritableStream;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use types::protos::aes_packet::AesPacket;
 use types::protos::media_packet::media_packet::MediaType;
@@ -22,6 +21,10 @@ use yew::prelude::Callback;
 /// Options struct for constructing a client via [VideoCallClient::new(options)][VideoCallClient::new]
 #[derive(Clone, Debug, PartialEq)]
 pub struct VideoCallClientOptions {
+
+    /// origin url address
+    pub origin_url: String,
+
     /// `true` to use end-to-end encription; `false` to send data unencrypted
     pub enable_e2ee: bool,
 
@@ -75,6 +78,12 @@ struct Inner {
     peer_decode_manager: PeerDecodeManager,
 }
 
+impl Inner {
+    pub fn _get_decode_manager(&self) -> &PeerDecodeManager {
+        &self.peer_decode_manager
+    }
+}
+
 /// The client struct for a video call connection.
 ///
 /// To use it, first construct the struct using [new(options)][Self::new].  Then when/if desired,
@@ -119,21 +128,6 @@ impl VideoCallClient {
         }
     }
 
-    /// Initiates a connection to a videocall server.
-    ///
-    /// Initiates a connection using WebTransport (to
-    /// [`options.webtransport_url`](VideoCallClientOptions::webtransport_url)) or WebSocket (to
-    /// [`options.websocket_url`](VideoCallClientOptions::websocket_url)), based on the value of
-    /// [`options.enable_webtransport`](VideoCallClientOptions::enable_webtransport).
-    ///
-    /// Note that this method's success means only that it succesfully *attempted* initiation of the
-    /// connection.  The connection cannot actually be considered to have been succesful until the
-    /// [`options.on_connected`](VideoCallClientOptions::on_connected) callback has been invoked.
-    ///
-    /// If the connection does not succeed, the
-    /// [`options.on_connection_lost`](VideoCallClientOptions::on_connection_lost) callback will be
-    /// invoked.
-    ///
     pub fn connect(&mut self) -> anyhow::Result<()> {
         let options = ConnectOptions {
             userid: self.options.userid.clone(),
@@ -226,7 +220,6 @@ impl VideoCallClient {
         }
     }
 
-    /// Returns `true` if the client is currently connected to a server.
     pub fn is_connected(&self) -> bool {
         if let Ok(inner) = self.inner.try_borrow() {
             if let Some(connection) = &inner.connection {
@@ -236,7 +229,6 @@ impl VideoCallClient {
         false
     }
 
-    /// Returns a vector of the userids of the currently connected remote peers, sorted alphabetically.
     pub fn sorted_peer_keys(&self) -> Vec<String> {
         match self.inner.try_borrow() {
             Ok(inner) => inner.peer_decode_manager.sorted_keys().to_vec(),
@@ -244,29 +236,20 @@ impl VideoCallClient {
         }
     }
 
-    pub fn get_peer_videos(&self) -> HashMap<String, MediaStream> {
-        match self.inner.try_borrow() {
-            Ok(inner) => inner.peer_decode_manager.get_peer_videos(),
-            Err(_) => HashMap::<String, MediaStream>::new(),
-        }
+    pub fn get_origin_url(&self) -> &str {
+        &self.options.origin_url
     }
 
-    pub fn get_video_media_stream_by_key(&self, key: &String) -> Option<MediaStream> {
-        if let Ok(inner) = self.inner.try_borrow() {
-            if let Some(peer) = inner.peer_decode_manager.get(key) {
-                return Some(peer.video.media_stream.clone());
+    pub fn set_media(&self, peer_id: String, audio_ws: WritableStream, video_ws: WritableStream, screen_ws: WritableStream) {
+        if let Ok(mut inner) = self.inner.try_borrow_mut() {
+            let peer = inner.peer_decode_manager.get_mut(&peer_id);
+            if let Some(peer) = peer {
+                let origin_url = self.get_origin_url();
+                peer.audio.set_media(origin_url, audio_ws);
+                peer.video.set_media(origin_url, video_ws);
+                peer.screen.set_media(origin_url, screen_ws);
             }
         }
-        None
-    }
-
-    pub fn get_screen_media_stream_by_key(&self, key: &String) -> Option<MediaStream> {
-        if let Ok(inner) = self.inner.try_borrow() {
-            if let Some(peer) = inner.peer_decode_manager.get(key) {
-                return Some(peer.screen.media_stream.clone());
-            }
-        }
-        None
     }
 
     pub fn aes(&self) -> Rc<Aes128State> {

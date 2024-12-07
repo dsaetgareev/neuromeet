@@ -4,8 +4,6 @@ use super::hash_map_with_ordered_keys::HashMapWithOrderedKeys;
 use super::video::Video;
 use log::debug;
 use protobuf::Message;
-use web_sys::MediaStream;
-use std::collections::HashMap;
 use std::{fmt::Display, sync::Arc};
 use types::protos::media_packet::MediaPacket;
 use types::protos::packet_wrapper::packet_wrapper::PacketType;
@@ -87,9 +85,9 @@ impl Peer {
 
     fn new_decoders() -> (Audio, Video, Video) {
         (
-            Audio::new(ThreadType::Multithread),
-            Video::new(ThreadType::Multithread),
-            Video::new(ThreadType::Multithread),
+            Audio::new(ThreadType::Single),
+            Video::new(ThreadType::Single),
+            Video::new(ThreadType::Single),
         )
     }
 
@@ -204,17 +202,8 @@ impl PeerDecodeManager {
         self.connected_peers.ordered_keys()
     }
 
-    pub fn get_peer_videos(&self) -> HashMap<String, MediaStream> {
-        let streams = self.connected_peers
-            .map()
-            .iter()
-            .map(|(key, peer)| (key.clone(), peer.video.media_stream.clone()))
-            .collect();
-        streams
-    }
-
-    pub fn get(&self, key: &String) -> Option<&Peer> {
-        self.connected_peers.get(key)
+    pub fn get_mut(&mut self, key: &String) -> Option<&mut Peer> {
+        self.connected_peers.get_mut(key)
     }
 
     pub fn run_peer_monitor(&mut self) {
