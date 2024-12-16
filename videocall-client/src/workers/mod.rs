@@ -1,5 +1,4 @@
 mod worker_handler;
-mod packet;
 mod video_worker_decoder;
 mod worker_factory;
 mod worker_wrapper;
@@ -10,7 +9,6 @@ pub use worker_handler::WorkerHandler;
 pub use worker_handler::DecoderType;
 pub use worker_handler::PeerDecode;
 
-pub use packet::VideoPacket;
 pub use worker_factory::worker_new;
 pub use worker_wrapper::worker_start;
 pub use worker_wrapper::service_worker_start;

@@ -26,7 +26,6 @@ impl AudioWorkerDecoder {
     }
 
     pub fn decode(&mut self, packet: Arc<MediaPacket>) {
-        // let encoded_audio_chunk = AudioPacket::get_encoded_audio_chunk(packet);
         let chunk_type = get_chunk_type(&packet);
         let encoded_audio_chunk = get_chunk(&packet, chunk_type);
         let state = self.audio_decoder.state();
@@ -36,7 +35,9 @@ impl AudioWorkerDecoder {
                 log::info!("audio decoder unconfigured");
             },
             web_sys::CodecState::Configured => {
-                self.audio_decoder.decode(&encoded_audio_chunk);
+                if let Err(_err) = self.audio_decoder.decode(&encoded_audio_chunk) {
+                    web_sys::console::error_1(&JsValue::from("error decode audio"));
+                }
             },
             web_sys::CodecState::Closed => {
                 log::info!("audio_decoder closed");
@@ -77,8 +78,8 @@ fn get_chunk(
     let audio_data_js: js_sys::Uint8Array =
         js_sys::Uint8Array::new_with_length(audio_data.len() as u32);
     audio_data_js.copy_from(audio_data.as_slice());
-    let mut audio_chunk =
+    let audio_chunk =
         EncodedAudioChunkInit::new(&audio_data_js.into(), packet.timestamp, chunk_type);
-    audio_chunk.duration(packet.duration);
+    audio_chunk.set_duration(packet.duration);
     EncodedAudioChunk::new(&audio_chunk).unwrap()
 }

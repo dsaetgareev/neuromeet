@@ -49,6 +49,7 @@ serde_json = "1.0.82"
 tokio = { version = "1.28.2", features = ["full"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["fmt", "ansi", "env-filter", "time", "tracing-log"] }
+time = "0.3.35"
 tracing-tree = "0.2.3"
 types = { path= "../types"}
 urlencoding = "2.1.3"

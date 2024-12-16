@@ -79,19 +79,19 @@ impl EncoderHandler {
 
     pub fn audio_close(&mut self) {
         if let Some(audio_encoder) = &self.audio_encoder {
-            audio_encoder.close();
+            audio_encoder.close().expect("cannot close screen");
         }
     }
 
     pub fn video_close(&mut self) {
         if let Some(video_encoder) = &self.video_encoder {
-            video_encoder.close()
+            video_encoder.close().expect("cannot close screen");
         }
     }
 
     pub fn screen_close(&mut self) {
         if let Some(screen_encoder) = &self.screen_encoder {
-            screen_encoder.close()
+            screen_encoder.close().expect("cannot close screen");
         }
     }
 }
@@ -109,7 +109,6 @@ pub fn configure_camera_encoder(
     let aes = aes;
 
     let video_output_handler = {
-        let mut buffer: [u8; 100000] = [0; 100000];
         let mut sequence_number = 0;
         let on_frame = on_frame;
         Box::new(move |chunk: JsValue| {
@@ -117,7 +116,6 @@ pub fn configure_camera_encoder(
             let packet: PacketWrapper = transform_video_chunk(
                 chunk,
                 sequence_number,
-                &mut buffer,
                 &userid,
                 aes.clone(),
             );
@@ -142,12 +140,14 @@ pub fn configure_camera_encoder(
 
         let video_encoder = Box::new(VideoEncoder::new(&video_encoder_init).unwrap());
 
-        let mut video_encoder_config =
+        let video_encoder_config =
             VideoEncoderConfig::new(VIDEO_CODEC, VIDEO_HEIGHT as u32, VIDEO_WIDTH as u32);
 
-        video_encoder_config.bitrate(100_000f64);
-        video_encoder_config.latency_mode(LatencyMode::Realtime);
-        video_encoder.configure(&video_encoder_config);
+        video_encoder_config.set_bitrate(100_000f64);
+        video_encoder_config.set_latency_mode(LatencyMode::Realtime);
+        if let Err(_err) = video_encoder.configure(&video_encoder_config) {
+            web_sys::console::error_1(&JsValue::from("error configure video_encoder"));
+        }
         encoder_handler.borrow_mut().set_video(video_encoder.clone());
         let video_reader = readable
             .get_reader()
@@ -162,9 +162,9 @@ pub fn configure_camera_encoder(
                         let video_frame = Reflect::get(&js_frame, &JsString::from("value"))
                             .unwrap()
                             .unchecked_into::<VideoFrame>();
-                        let mut opts = VideoEncoderEncodeOptions::new();
+                        let opts = VideoEncoderEncodeOptions::new();
                         video_frame_counter = (video_frame_counter + 1) % 50;
-                        opts.key_frame(video_frame_counter == 0);
+                        opts.set_key_frame(video_frame_counter == 0);
                         let state: CodecState = video_encoder.state();
                         match state {
                             CodecState::Unconfigured => {
@@ -174,7 +174,9 @@ pub fn configure_camera_encoder(
                                 if video_frame.is_undefined() || !video_frame.is_instance_of::<VideoFrame>() {
                                     return;
                                 }
-                                video_encoder.encode_with_options(&video_frame, &opts);
+                                if let Err(_err) = video_encoder.encode_with_options(&video_frame, &opts) {
+                                    web_sys::console::error_1(&JsValue::from("error encode video_decoder"));
+                                }
                             },
                             CodecState::Closed => {
                                 web_sys::console::log_1(&"Video encoder closed".into());
@@ -205,14 +207,12 @@ pub fn configure_screen_encoder(
     let userid = user_id;
     let aes = aes;
     let screen_output_handler = {
-        let mut buffer: [u8; 150000] = [0; 150000];
         let mut sequence_number = 0;
         Box::new(move |chunk: JsValue| {
             let chunk = web_sys::EncodedVideoChunk::from(chunk);
             let packet: PacketWrapper = transform_screen_chunk(
                 chunk,
                 sequence_number,
-                &mut buffer,
                 &userid,
                 aes.clone(),
             );
@@ -235,11 +235,13 @@ pub fn configure_screen_encoder(
         );
 
         let screen_encoder = Box::new(VideoEncoder::new(&screen_encoder_init).unwrap());
-        let mut screen_encoder_config =
+        let screen_encoder_config =
             VideoEncoderConfig::new(VIDEO_CODEC, SCREEN_HEIGHT, SCREEN_WIDTH);
-        screen_encoder_config.bitrate(64_000f64);
-        screen_encoder_config.latency_mode(LatencyMode::Realtime);
-        screen_encoder.configure(&screen_encoder_config);
+        screen_encoder_config.set_bitrate(64_000f64);
+        screen_encoder_config.set_latency_mode(LatencyMode::Realtime);
+        if let Err(_err) = screen_encoder.configure(&screen_encoder_config) {
+            web_sys::console::error_1(&JsValue::from("error configure screen_encoder"));
+        }
         encoder_handler.borrow_mut().set_screen(screen_encoder.clone());
 
         let screen_reader = readable
@@ -255,9 +257,9 @@ pub fn configure_screen_encoder(
                         let video_frame = Reflect::get(&js_frame, &JsString::from("value"))
                             .unwrap()
                             .unchecked_into::<VideoFrame>();
-                        let mut opts = VideoEncoderEncodeOptions::new();
+                        let opts = VideoEncoderEncodeOptions::new();
                         screen_frame_counter = (screen_frame_counter + 1) % 50;
-                        opts.key_frame(screen_frame_counter == 0);
+                        opts.set_key_frame(screen_frame_counter == 0);
                         let state: CodecState = screen_encoder.state();
                         match state {
                             CodecState::Unconfigured => {
@@ -267,7 +269,9 @@ pub fn configure_screen_encoder(
                                 if video_frame.is_undefined() || !video_frame.is_instance_of::<VideoFrame>() {
                                     return;
                                 }
-                                screen_encoder.encode_with_options(&video_frame, &opts);
+                                if let Err(_err) = screen_encoder.encode_with_options(&video_frame, &opts) {
+                                    web_sys::console::error_1(&JsValue::from("error encode screen"));
+                                }
                             },
                             CodecState::Closed => {
                                 web_sys::console::log_1(&"Screen encoder closed".into());
@@ -275,7 +279,6 @@ pub fn configure_screen_encoder(
                             },
                             _ => todo!(),
                         }
-                        screen_encoder.encode_with_options(&video_frame, &opts);
                         video_frame.close();
                     }
                     Err(e) => {
@@ -298,13 +301,12 @@ pub fn configure_audio_encoder(
     let userid = user_id;
     let aes = aes;
     let audio_output_handler = {
-        let mut buffer: [u8; 100000] = [0; 100000];
         let mut sequence = 0;
         let on_audio = on_audio;
         Box::new(move |chunk: JsValue| {
             let chunk = web_sys::EncodedAudioChunk::from(chunk);
             let packet: PacketWrapper =
-                transform_audio_chunk(&chunk, &mut buffer, &userid, sequence, aes.clone());
+                transform_audio_chunk(&chunk, &userid, sequence, aes.clone());
             on_audio(packet);
             sequence += 1;
         })
@@ -324,11 +326,13 @@ pub fn configure_audio_encoder(
             audio_output_handler.as_ref().unchecked_ref(),
         );
         let audio_encoder = Box::new(AudioEncoder::new(&audio_encoder_init).unwrap());
-        let mut audio_encoder_config = AudioEncoderConfig::new(AUDIO_CODEC);
-        audio_encoder_config.bitrate(AUDIO_BITRATE);
-        audio_encoder_config.sample_rate(AUDIO_SAMPLE_RATE);
-        audio_encoder_config.number_of_channels(AUDIO_CHANNELS);
-        audio_encoder.configure(&audio_encoder_config);
+        let audio_encoder_config = AudioEncoderConfig::new(AUDIO_CODEC);
+        audio_encoder_config.set_bitrate(AUDIO_BITRATE);
+        audio_encoder_config.set_sample_rate(AUDIO_SAMPLE_RATE);
+        audio_encoder_config.set_number_of_channels(AUDIO_CHANNELS);
+        if let Err(_err) = audio_encoder.configure(&audio_encoder_config) {
+            web_sys::console::error_1(&JsValue::from("error configure audio"));
+        }
 
         let audio_reader = readable
             .get_reader()
@@ -347,7 +351,14 @@ pub fn configure_audio_encoder(
                                 web_sys::console::log_1(&"Audio encoder uncofigured".into());
                             },
                             web_sys::CodecState::Configured => {
-                                audio_encoder.encode(&audio_frame);
+                                // web_sys::console::log_1(&"3333".into());
+                                // web_sys::console::log_1(&"audio decoder from decode".into());
+                                let res = audio_encoder.encode(&audio_frame);
+                                if let Err(err) = res {
+                                    web_sys::console::error_1(&JsValue::from(err));
+                                } else {
+                                    web_sys::console::error_1(&JsValue::from("jdfkdjf"));
+                                }
                             },
                             web_sys::CodecState::Closed => {
                                 web_sys::console::log_1(&"Audio encoder closed".into());

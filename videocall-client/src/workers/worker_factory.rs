@@ -10,9 +10,11 @@ pub fn worker_new(origin: Option<&str>, name: &str) -> Worker {
             .into(),
     );
 
+    let blob_property_bag = BlobPropertyBag::new();
+    blob_property_bag.set_type("text/javascript");
     let blob = Blob::new_with_str_sequence_and_options(
         &script,
-        BlobPropertyBag::new().type_("text/javascript"),
+        &blob_property_bag,
     )
     .expect("blob creation succeeds");
 

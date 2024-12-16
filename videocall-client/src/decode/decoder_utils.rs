@@ -89,7 +89,9 @@ pub fn _configure_video_decoder() -> (VideoDecoder, VideoDecoderConfig, MediaStr
     error_video.forget();
     output.forget();
     let video_config = VideoDecoderConfig::new(&VIDEO_CODEC); 
-    local_video_decoder.configure(&video_config);
+    if let Err(_err) = local_video_decoder.configure(&video_config) {
+        web_sys::console::error_1(&JsValue::from("error configure video_decoder"));
+    }
     (local_video_decoder, video_config, media_stream, writable_stream)
 }
 
@@ -130,7 +132,9 @@ pub fn configure_video_decoder_for_worker(writable: WritableStream) -> (VideoDec
     error_video.forget();
     output.forget();
     let video_config = VideoDecoderConfig::new(&VIDEO_CODEC); 
-    local_video_decoder.configure(&video_config);
+    if let Err(_err) = local_video_decoder.configure(&video_config) {
+        web_sys::console::error_1(&JsValue::from("error configure video_decoder"));
+    }
     log::info!("docoder created");
     (local_video_decoder, video_config)
 }
@@ -167,11 +171,13 @@ pub fn configure_audio_decoder_for_worker(writable: WritableStream) -> AudioDeco
     ))
     .unwrap();
 
-    decoder.configure(&AudioDecoderConfig::new(
+    if let Err(_err) = decoder.configure(&AudioDecoderConfig::new(
         AUDIO_CODEC,
         AUDIO_CHANNELS,
         AUDIO_SAMPLE_RATE,
-    )); 
+    )) {
+        web_sys::console::error_1(&JsValue::from("error configure audio_decoder"));
+    } 
     error.forget();
     output.forget();
     decoder

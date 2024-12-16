@@ -13,13 +13,13 @@ getrandom = { version = "0.2.10", features = ["js"] }
 gloo = "0.8.0"
 gloo-timers = "0.2.6"
 gloo-utils = "0.1"
-js-sys = "0.3.64"
+js-sys = "0.3.76"
 log = "0.4.19"
 protobuf = "3.2.0"
 rand = { version = "0.8.5", features = ["std_rng", "small_rng"] }
 rsa = "0.9.2"
 types = { path= "../types"}
-wasm-bindgen = "0.2.78"
+wasm-bindgen = "0.2.99"
 wasm-bindgen-futures = "0.4.30"
 yew = { version = "0.21", features = ["csr"] }
 yew-websocket = "1.21.0"
@@ -30,7 +30,7 @@ serde_json = "1"
 serde-wasm-bindgen = "0.5"
 thiserror = "1"
 
-web-sys = { version = "0.3.64", features = [
+web-sys = { version = "0.3.76", features = [
     "AudioTrack",
     "AudioData",
     "AudioEncoder",

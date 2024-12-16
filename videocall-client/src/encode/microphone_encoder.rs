@@ -78,12 +78,12 @@ impl MicrophoneEncoder {
             let navigator = window().navigator();
             let media_devices = navigator.media_devices().unwrap();
             // TODO: Add dropdown so that user can select the device that they want to use.
-            let mut constraints = MediaStreamConstraints::new();
-            let mut media_info = web_sys::MediaTrackConstraints::new();
-            media_info.device_id(&device_id.into());
+            let constraints = MediaStreamConstraints::new();
+            let media_info = web_sys::MediaTrackConstraints::new();
+            media_info.set_device_id(&device_id.into());
 
-            constraints.audio(&media_info.into());
-            constraints.video(&Boolean::from(false));
+            constraints.set_audio(&media_info.into());
+            constraints.set_video(&Boolean::from(false));
             let devices_query = media_devices
                 .get_user_media_with_constraints(&constraints)
                 .unwrap();

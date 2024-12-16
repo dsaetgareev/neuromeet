@@ -1,5 +1,6 @@
 use super::super::wrappers::{EncodedAudioChunkTypeWrapper, EncodedVideoChunkTypeWrapper};
 use crate::crypto::aes::Aes128State;
+use js_sys::Uint8Array;
 use protobuf::Message;
 use std::rc::Rc;
 use types::protos::{
@@ -11,14 +12,14 @@ use web_sys::{EncodedAudioChunk, EncodedVideoChunk};
 pub fn transform_video_chunk(
     chunk: EncodedVideoChunk,
     sequence: u64,
-    buffer: &mut [u8],
     email: &str,
     aes: Rc<Aes128State>,
 ) -> PacketWrapper {
     let byte_length = chunk.byte_length() as usize;
-    chunk.copy_to_with_u8_array(buffer);
+    let js_buffer = Uint8Array::new_with_length(byte_length as u32);
+    let _ = chunk.copy_to_with_u8_array(&js_buffer);
     let mut media_packet: MediaPacket = MediaPacket {
-        data: buffer[0..byte_length].to_vec(),
+        data: js_buffer.to_vec(),
         frame_type: EncodedVideoChunkTypeWrapper(chunk.type_()).to_string(),
         email: email.to_owned(),
         media_type: MediaType::VIDEO.into(),
@@ -46,15 +47,15 @@ pub fn transform_video_chunk(
 pub fn transform_screen_chunk(
     chunk: EncodedVideoChunk,
     sequence: u64,
-    buffer: &mut [u8],
     email: &str,
     aes: Rc<Aes128State>,
 ) -> PacketWrapper {
     let byte_length = chunk.byte_length() as usize;
-    chunk.copy_to_with_u8_array(buffer);
+    let js_buffer = Uint8Array::new_with_length(byte_length as u32);
+    let _ = chunk.copy_to_with_u8_array(&js_buffer);
     let mut media_packet: MediaPacket = MediaPacket {
         email: email.to_owned(),
-        data: buffer[0..byte_length].to_vec(),
+        data: js_buffer.to_vec(),
         frame_type: EncodedVideoChunkTypeWrapper(chunk.type_()).to_string(),
         media_type: MediaType::SCREEN.into(),
         timestamp: chunk.timestamp(),
@@ -80,16 +81,17 @@ pub fn transform_screen_chunk(
 
 pub fn transform_audio_chunk(
     chunk: &EncodedAudioChunk,
-    buffer: &mut [u8],
     email: &str,
     sequence: u64,
     aes: Rc<Aes128State>,
 ) -> PacketWrapper {
-    chunk.copy_to_with_u8_array(buffer);
+    let byte_length = chunk.byte_length() as usize;
+    let js_buffer = Uint8Array::new_with_length(byte_length as u32);
+    let _ = chunk.copy_to_with_u8_array(&js_buffer);
     let mut media_packet: MediaPacket = MediaPacket {
         email: email.to_owned(),
         media_type: MediaType::AUDIO.into(),
-        data: buffer[0..chunk.byte_length() as usize].to_vec(),
+        data: js_buffer.to_vec(),
         frame_type: EncodedAudioChunkTypeWrapper(chunk.type_()).to_string(),
         timestamp: chunk.timestamp(),
         video_metadata: Some(VideoMetadata {

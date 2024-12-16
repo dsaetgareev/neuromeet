@@ -99,7 +99,9 @@ impl VideoWorkerDecoder {
                 let (video_decoder, video_config) = configure_video_decoder_for_worker(self.writable.clone());
                 self.video_decoder = video_decoder;
                 self.video_config = video_config;
-                self.video_decoder.configure(&self.video_config);
+                if let Err(_err) = self.video_decoder.configure(&self.video_config) {
+                    web_sys::console::error_1(&JsValue::from("error configure video_decoder"));
+                }
             },
             _ => {},
         }
@@ -144,8 +146,8 @@ pub fn get_encoded_video_chunk(packet: Arc<MediaPacket>) -> EncodedVideoChunk {
 pub fn get_encoded_video_chunk_from_data(video_data: Arc<MediaPacket>) -> EncodedVideoChunk {
     let data = Uint8Array::from(video_data.data.as_ref());
     let chunk_type = EncodedVideoChunkTypeWrapper::from(video_data.frame_type.as_str()).0;
-    let mut encoded_chunk_init = EncodedVideoChunkInit::new(&data, video_data.timestamp, chunk_type);
-    encoded_chunk_init.duration(video_data.duration);
+    let encoded_chunk_init = EncodedVideoChunkInit::new(&data, video_data.timestamp, chunk_type);
+    encoded_chunk_init.set_duration(video_data.duration);
     let encoded_video_chunk = EncodedVideoChunk::new(
         &encoded_chunk_init
     ).unwrap();
