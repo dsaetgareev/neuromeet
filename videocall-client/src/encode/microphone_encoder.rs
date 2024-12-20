@@ -12,6 +12,8 @@ use web_sys::MediaStreamTrack;
 use web_sys::MediaStreamTrackProcessor;
 use web_sys::MediaStreamTrackProcessorInit;
 
+use crate::constants::AUDIO_SAMPLE_RATE;
+
 use super::device_state::DeviceState;
 use super::ReadableType;
 use super::Sender;
@@ -77,12 +79,14 @@ impl MicrophoneEncoder {
         wasm_bindgen_futures::spawn_local(async move {
             let navigator = window().navigator();
             let media_devices = navigator.media_devices().unwrap();
-            // TODO: Add dropdown so that user can select the device that they want to use.
             let constraints = MediaStreamConstraints::new();
+
             let media_info = web_sys::MediaTrackConstraints::new();
             media_info.set_device_id(&device_id.into());
 
-            constraints.set_audio(&media_info.into());
+            js_sys::Reflect::set(&media_info, &JsValue::from("sampleRate"), &JsValue::from(AUDIO_SAMPLE_RATE)).unwrap();
+
+            constraints.set_audio(&media_info.clone().into());
             constraints.set_video(&Boolean::from(false));
             let devices_query = media_devices
                 .get_user_media_with_constraints(&constraints)
@@ -99,11 +103,10 @@ impl MicrophoneEncoder {
                     .unchecked_into::<AudioTrack>(),
             );
 
-            let audio_processor =
-                MediaStreamTrackProcessor::new(&MediaStreamTrackProcessorInit::new(
-                    &audio_track.clone().unchecked_into::<MediaStreamTrack>(),
-                ))
-                .unwrap();
+            let media_stream_processor_init = MediaStreamTrackProcessorInit::new(&audio_track.clone().unchecked_into::<MediaStreamTrack>());
+            media_stream_processor_init.set_max_buffer_size(2048 as u16);
+
+            let audio_processor = MediaStreamTrackProcessor::new(&media_stream_processor_init).unwrap();
             let audio_readable = audio_processor.readable();
             let media_track = &audio_track.clone().unchecked_into::<MediaStreamTrack>();
             sender.send_readable(ReadableType::Audio, audio_readable, media_track.clone());

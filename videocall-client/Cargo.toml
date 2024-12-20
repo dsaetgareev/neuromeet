@@ -42,6 +42,8 @@ web-sys = { version = "0.3.76", features = [
     "AudioContext",
     "AudioSampleFormat",
     "BaseAudioContext",
+    "BiquadFilterType",
+    "BiquadFilterNode",
     "Document",
     "Element",
     "GainOptions",

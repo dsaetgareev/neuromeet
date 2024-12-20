@@ -7,7 +7,6 @@ use wasm_bindgen::{prelude::Closure, JsValue, JsCast};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::AudioData;
 use web_sys::AudioEncoder;
-use web_sys::AudioEncoderConfig;
 use web_sys::AudioEncoderInit;
 use web_sys::CodecState;
 use web_sys::MediaStreamTrack;
@@ -326,12 +325,64 @@ pub fn configure_audio_encoder(
             audio_output_handler.as_ref().unchecked_ref(),
         );
         let audio_encoder = Box::new(AudioEncoder::new(&audio_encoder_init).unwrap());
-        let audio_encoder_config = AudioEncoderConfig::new(AUDIO_CODEC);
-        audio_encoder_config.set_bitrate(AUDIO_BITRATE);
-        audio_encoder_config.set_sample_rate(AUDIO_SAMPLE_RATE);
-        audio_encoder_config.set_number_of_channels(AUDIO_CHANNELS);
-        if let Err(_err) = audio_encoder.configure(&audio_encoder_config) {
+
+        let encoder_config = js_sys::Object::new();
+        js_sys::Reflect::set(
+            &encoder_config,
+            &JsValue::from_str("codec"),
+            &JsValue::from_str(AUDIO_CODEC), 
+        )
+        .unwrap();
+
+        js_sys::Reflect::set(
+            &encoder_config,
+            &JsValue::from_str("bitrate"),
+            &JsValue::from_f64(AUDIO_BITRATE), 
+        )
+        .unwrap();
+
+        js_sys::Reflect::set(
+            &encoder_config,
+            &JsValue::from_str("sampleRate"),
+            &JsValue::from(AUDIO_SAMPLE_RATE), 
+        )
+        .unwrap();
+
+        js_sys::Reflect::set(
+            &encoder_config,
+            &JsValue::from_str("numberOfChannels"),
+            &JsValue::from(AUDIO_CHANNELS), 
+        )
+        .unwrap();
+
+        js_sys::Reflect::set(
+            &encoder_config,
+            &JsValue::from_str("bitrateMode"),
+            &JsValue::from_str("variable"), 
+        )
+        .unwrap();
+
+        js_sys::Reflect::set(
+            &encoder_config,
+            &JsValue::from_str("fec"),
+            &JsValue::from_bool(true), 
+        )
+        .unwrap();
+
+        js_sys::Reflect::set(
+            &encoder_config,
+            &JsValue::from_str("lowLatency"),
+            &JsValue::from_bool(true), 
+        )
+        .unwrap();
+    
+        let js_encoder_config: JsValue = encoder_config.into();
+
+        if let Err(_err) = audio_encoder.configure(&js_encoder_config.unchecked_into()) {
             web_sys::console::error_1(&JsValue::from("error configure audio"));
+        } else {
+            
+            web_sys::console::log_1(&JsValue::from("audio configured"));
         }
 
         let audio_reader = readable
@@ -346,18 +397,17 @@ pub fn configure_audio_encoder(
                             .unwrap()
                             .unchecked_into::<AudioData>();
                         let state = audio_encoder.state();
+                        // web_sys::console::log_1(&JsValue::from(audio_frame.sample_rate()));
                         match state {
                             web_sys::CodecState::Unconfigured => {
                                 web_sys::console::log_1(&"Audio encoder uncofigured".into());
                             },
                             web_sys::CodecState::Configured => {
-                                // web_sys::console::log_1(&"3333".into());
-                                // web_sys::console::log_1(&"audio decoder from decode".into());
-                                let res = audio_encoder.encode(&audio_frame);
-                                if let Err(err) = res {
+                                if audio_frame.is_undefined() || !audio_frame.is_instance_of::<AudioData>() {
+                                    return;
+                                }
+                                if let Err(err) = audio_encoder.encode(&audio_frame) {
                                     web_sys::console::error_1(&JsValue::from(err));
-                                } else {
-                                    web_sys::console::error_1(&JsValue::from("jdfkdjf"));
                                 }
                             },
                             web_sys::CodecState::Closed => {

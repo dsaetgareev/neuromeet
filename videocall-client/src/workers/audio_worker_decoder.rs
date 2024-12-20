@@ -14,18 +14,25 @@ use super::PeerDecode;
 
 #[derive(Clone, Debug)]
 pub struct AudioWorkerDecoder {
-    audio_decoder: AudioDecoder
+    audio_decoder: AudioDecoder,
+    sequence: u64,
 }
 
 impl AudioWorkerDecoder {
 
     pub fn new(audio_decoder: AudioDecoder) -> Self {
         Self {
-            audio_decoder
+            audio_decoder,
+            sequence: 0u64,
         }
     }
 
     pub fn decode(&mut self, packet: Arc<MediaPacket>) {
+        let new_sequence_number = packet.video_metadata.sequence;
+        if new_sequence_number <= self.sequence {
+            web_sys::console::log_1(&format!("fast sequence:{} < {}", new_sequence_number, self.sequence).into());
+        }
+        self.sequence = new_sequence_number;
         let chunk_type = get_chunk_type(&packet);
         let encoded_audio_chunk = get_chunk(&packet, chunk_type);
         let state = self.audio_decoder.state();

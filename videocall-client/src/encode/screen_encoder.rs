@@ -68,11 +68,16 @@ impl ScreenEncoder {
         wasm_bindgen_futures::spawn_local(async move {
             let navigator = window().navigator();
             let media_devices = navigator.media_devices().unwrap();
-            let screen_to_share: MediaStream =
-                JsFuture::from(media_devices.get_display_media().unwrap())
-                    .await
-                    .unwrap()
-                    .unchecked_into::<MediaStream>();
+            let screen_to_share;
+
+            match JsFuture::from(media_devices.get_display_media().unwrap()).await {
+                Ok(md) => {
+                    screen_to_share = md.unchecked_into::<MediaStream>();
+                },
+                Err(_) => {
+                    return;
+                },
+            }
 
             // TODO: How can we determine the actual width and height of the screen to set the encoder config?
             let screen_track = Box::new(
@@ -95,5 +100,6 @@ impl ScreenEncoder {
                 .unchecked_into::<MediaStreamTrack>();
             sender.send_readable(ReadableType::Screen, screen_readable, media_track.clone());
         });
+        self.stop();
     }
 }
