@@ -16,6 +16,8 @@ use types::protos::packet_wrapper::packet_wrapper::PacketType;
 use types::protos::packet_wrapper::PacketWrapper;
 use web_transport_quinn::Session;
 
+use crate::kafka::kafka_client::KafkaClient;
+
 pub const WEB_TRANSPORT_ALPN: &[&[u8]] = &[b"h3", b"h3-32", b"h3-31", b"h3-30", b"h3-29"];
 
 pub const QUIC_ALPN: &[u8] = b"hq-29";
@@ -260,23 +262,39 @@ async fn handle_session(
         let session = session.clone();
         let nc = nc.clone();
         let specific_subject = specific_subject.clone();
+        let producer_client = KafkaClient::producer_client().await.expect("cannot get producer_client");
+        let producer_client = Arc::new(tokio::sync::RwLock::new(producer_client));
         tokio::spawn(async move {
+            let producer_client = Arc::clone(&producer_client);
             let session = session.read().await;
             while let Ok(mut uni_stream) = session.accept_uni().await {
+                let producer_client = Arc::clone(&producer_client);
                 let nc = nc.clone();
                 let specific_subject = specific_subject.clone();
                 tokio::spawn(async move {
                     let result = uni_stream.read_to_end(1_000_000).await;
+                    let kafka_key = specific_subject.clone();
                     match result {
                         Ok(buf) => {
                             tokio::spawn(async move {
                                 if let Err(e) =
-                                    nc.publish(specific_subject.clone(), buf.into()).await
+                                    nc.publish(specific_subject.clone(), buf.clone().into()).await
                                 {
                                     error!(
                                         "Error publishing to subject {}: {}",
                                         &specific_subject, e
                                     );
+                                } else {
+                                    tokio::spawn(async move {
+                                        let message = samsa::prelude::ProduceMessage {
+                                            topic: "test".to_string(),
+                                            partition_id: 0i32,
+                                            key: Some(bytes::Bytes::copy_from_slice(kafka_key.as_bytes())),
+                                            value: Some(buf.into()),
+                                            headers: vec![samsa::prelude::Header::new(String::from("Key"), bytes::Bytes::from("Value"))]
+                                        };
+                                        producer_client.read().await.produce(message).await;
+                                    });
                                 }
                             });
                         }

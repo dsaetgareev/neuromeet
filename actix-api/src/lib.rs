@@ -5,3 +5,4 @@ pub mod db;
 pub mod messages;
 pub mod models;
 pub mod webtransport;
+pub mod kafka;

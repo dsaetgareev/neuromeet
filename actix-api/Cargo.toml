@@ -15,6 +15,10 @@ path = "src/bin/webtransport_server.rs"
 name = "websocket_server"
 path = "src/bin/websocket_server.rs"
 
+[[bin]]
+name = "consumer_server"
+path = "src/bin/consumer_server.rs"
+
 [dependencies]
 actix = "0.13.0"
 actix-cors = "0.6.1"
@@ -47,6 +51,7 @@ rustls-pemfile = "2"
 serde = "1.0.140"
 serde_json = "1.0.82"
 tokio = { version = "1.28.2", features = ["full"] }
+tokio-stream = "0.1.14"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["fmt", "ansi", "env-filter", "time", "tracing-log"] }
 time = "0.3.35"
@@ -57,3 +62,5 @@ uuid = { version = "0.8", features = ["serde", "v4"] }
 web-transport-quinn = "0.3.1"
 quinn-proto = "0.11"
 dotenv = "0.15"
+samsa = "0.1"
+ogg = "0.9.1"

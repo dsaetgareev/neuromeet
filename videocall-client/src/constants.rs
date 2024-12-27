@@ -26,5 +26,5 @@ pub const SCREEN_WIDTH: u32 = 1920u32;
 pub const RSA_BITS: usize = 1024;
 
 pub const ACTIX_WEBSOCKET: &str =  "ws://localhost:8080/lobby";
-pub const WEBTRANSPORT_HOST: &str =  "https://neuromeet.ru:4433/lobby";
-// pub const WEBTRANSPORT_HOST: &str =  "https://127.0.0.1:4433/lobby";
+// pub const WEBTRANSPORT_HOST: &str =  "https://neuromeet.ru:4433/lobby";
+pub const WEBTRANSPORT_HOST: &str =  "https://127.0.0.1:4433/lobby";
