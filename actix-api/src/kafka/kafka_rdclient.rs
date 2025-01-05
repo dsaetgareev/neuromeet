@@ -50,35 +50,26 @@ impl KafkaClient {
                 Ok(name) => {
                     info!("Топик '{}' успешно создан.", name);
                     if let Ok(producer) = &self.system_producer {
-                        let message = &"common".as_bytes().to_vec();
-                        let common_headers = OwnedHeaders::new()
-                            .insert(Header { key: "key", value: Some(topic_name) })
-                            .insert(Header { key: "topic_name", value: Some(topic_name) });
+                        let message = &"unit".as_bytes().to_vec();
                         let record: FutureRecord<'_, String, Vec<u8>> = FutureRecord::to(SYSTEM_TOPIC_NAME)
-                            .key(&name)
-                            .headers(common_headers)
+                            .key(key)
+                            .headers(headers.clone())
                             .payload(message);
                         let _ = producer.send(record, Timeout::After(Duration::from_millis(10))).await;
-                        // let message = &"unit".as_bytes().to_vec();
-                        // let record: FutureRecord<'_, String, Vec<u8>> = FutureRecord::to(SYSTEM_TOPIC_NAME)
-                        //     .key(key)
-                        //     .headers(headers.clone())
-                        //     .payload(message);
-                        // let _ = producer.send(record, Timeout::After(Duration::from_millis(10))).await;
                     }
                 },
                 Err((topic_name, code)) => {
                     error!("Ошибка при создании топика: {:?}, {:?}", topic_name, code);
-                    // if RDKafkaErrorCode::TopicAlreadyExists == code {
-                    //     if let Ok(producer) = &self.system_producer {
-                    //         let message = &"unit".as_bytes().to_vec();
-                    //         let record: FutureRecord<'_, String, Vec<u8>> = FutureRecord::to(SYSTEM_TOPIC_NAME)
-                    //             .key(key)
-                    //             .headers(headers.clone())
-                    //             .payload(message);
-                    //         let _ = producer.send(record, Timeout::After(Duration::from_millis(10))).await;
-                    //     }
-                    // }
+                    if RDKafkaErrorCode::TopicAlreadyExists == code {
+                        if let Ok(producer) = &self.system_producer {
+                            let message = &"unit".as_bytes().to_vec();
+                            let record: FutureRecord<'_, String, Vec<u8>> = FutureRecord::to(SYSTEM_TOPIC_NAME)
+                                .key(key)
+                                .headers(headers.clone())
+                                .payload(message);
+                            let _ = producer.send(record, Timeout::After(Duration::from_millis(10))).await;
+                        }
+                    }
                 }
             }
         }

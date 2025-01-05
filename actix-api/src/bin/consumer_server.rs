@@ -1,6 +1,7 @@
 use std::{borrow::Cow, collections::HashMap, fs::{File, OpenOptions}, io::BufWriter, str::FromStr, sync::{Arc, RwLock}, time::{SystemTime, UNIX_EPOCH}};
 
 use protobuf::Message as _;
+use rand::Rng;
 use rdkafka::{message::{BorrowedHeaders, Headers}, Message};
 use sec_api::kafka::kafka_consumer::KafkaConsumer;
 use tokio_stream::StreamExt;
@@ -71,7 +72,6 @@ async fn main() -> Result<(), ()> {
 
                             let topic_name = String::from(topic_name);
                             let group_id = String::from(group_id); 
-                            let payload_str = String::from(payload_str);
 
                             let file_name = format!("{}.ogg", group_id);
                             let file = OpenOptions::new()
@@ -82,10 +82,7 @@ async fn main() -> Result<(), ()> {
                             let writer = BufWriter::new(file);
 
                             let duration = Arc::new(RwLock::new(0u64));
-                            let serial = SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .expect("cannot get duration")
-                                .as_secs() as u32;
+                            let serial = rand::thread_rng().gen();
                             let mut ogg_writer = ogg::writing::PacketWriter::new(writer);
                             let _ = ogg_writer.write_packet(
                                 generate_identification_header(),
@@ -101,42 +98,21 @@ async fn main() -> Result<(), ()> {
                             let mut builder = KafkaConsumer::new();
                             let consumer = builder.create_consumer(&topic_name, &group_id).await;
                             if let Ok(common_consumer) = consumer {
-                                let consumer_type = ConsumerType::from_str(&payload_str).expect("cannot get ConsumerTpe");
-                                match consumer_type {
-                                    ConsumerType::Common => {
-                                        while let Some(message) = common_consumer.stream().next().await {
-                                            match message {
-                                                Ok(msg) => {
-                                                    if let Some(payload) = msg.payload() {
-                                                        emit_packet(payload.to_vec(), &mut ogg_writer, duration.clone(), serial);
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    eprintln!("Ошибка при получении сообщения: {:?}", e);
-                                                    return;
+                                while let Some(message) = common_consumer.stream().next().await {
+                                    match message {
+                                        Ok(msg) => {
+                                            let user_key = std::str::from_utf8(msg.key().unwrap()).expect("cannot get a user_key");
+                                            if let Some(payload) = msg.payload() {
+                                                if group_id.eq(user_key) {
+                                                    emit_packet(payload.to_vec(), &mut ogg_writer, duration.clone(), serial);
                                                 }
                                             }
                                         }
-                                    },
-                                    ConsumerType::Unit => {
-                                        while let Some(message) = common_consumer.stream().next().await {
-                                            match message {
-                                                Ok(msg) => {
-                                                    let user_key = std::str::from_utf8(msg.key().unwrap()).expect("cannot get a user_key");
-                                                    if let Some(payload) = msg.payload() {
-                                                        if group_id.eq(user_key) {
-                                                            emit_packet(payload.to_vec(), &mut ogg_writer, duration.clone(), serial);
-                                                        }
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    eprintln!("Ошибка при получении сообщения: {:?}", e);
-                                                    return;
-                                                }
-                                            }
+                                        Err(e) => {
+                                            eprintln!("Ошибка при получении сообщения: {:?}", e);
+                                            return;
                                         }
-                                    
-                                    },
+                                    }
                                 }
                             }
                         });
@@ -165,13 +141,10 @@ fn emit_packet(
             let media_type = packet.media_type.enum_value().unwrap();
             if media_type == MediaType::AUDIO && packet.duration > 0.0 {
 
-                // info!("media_type {}", media_type);
                 let data = packet.data;
-                // let dur = duration.read().unwrap().clone() + 960 as u64;
                 let mut write_duration = duration.write().expect("cannot get a duration");
                 *write_duration += 960;
                 let absgp = write_duration.clone();
-                let absgp = packet.timestamp as u64;
                 match ogg_writer.write_packet(
                     Cow::Owned(data),
                     serial,
