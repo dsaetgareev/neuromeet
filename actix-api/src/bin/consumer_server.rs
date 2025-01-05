@@ -1,14 +1,40 @@
-use std::{borrow::Cow, cell::RefCell, fs::File, io::{BufWriter, Write}, rc::Rc};
+use std::{borrow::Cow, collections::HashMap, fs::{File, OpenOptions}, io::BufWriter, str::FromStr, sync::{Arc, RwLock}, time::{SystemTime, UNIX_EPOCH}};
 
-use protobuf::Message;
-use samsa::prelude::{ConsumeMessage, ConsumerGroupBuilder, TcpConnection, TopicPartitionsBuilder};
+use protobuf::Message as _;
+use rdkafka::{message::{BorrowedHeaders, Headers}, Message};
+use sec_api::kafka::kafka_consumer::KafkaConsumer;
 use tokio_stream::StreamExt;
-use tracing::info;
 use types::protos::{media_packet::{media_packet::MediaType, MediaPacket}, packet_wrapper::PacketWrapper};
+
+const SYSTEM_TOPIC_NAME: &str = "system_events";
 
 #[derive(Debug)]
 pub enum ConsumerError {
     Error
+}
+
+pub enum ConsumerType {
+    Common,
+    Unit,
+}
+
+pub struct Unit {
+    serial: u64,
+    duration: Arc<RwLock<u64>>
+}
+
+impl FromStr for ConsumerType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+         match s {
+            "common" => Ok(ConsumerType::Common),
+            "unit" => Ok(ConsumerType::Unit),
+            "Common" => Ok(ConsumerType::Common),
+            "Unit" => Ok(ConsumerType::Unit),
+            _ => Err(format!("Unknown variant: {}", s)),
+        }
+    }
 }
 
 
@@ -23,59 +49,114 @@ async fn main() -> Result<(), ()> {
     .with_target(false)
     .init();
 
-    let bootstrap_addrs = vec![samsa::prelude::BrokerAddress {
-        host: "127.0.0.1".to_owned(),
-        port: 9093,
-    }];
+    let mut  system_consumer = KafkaConsumer::new();
 
-    let group_id = "Squad".to_string();
-    let src_topic = "test".to_string();
+    if let Ok(system_consumer) = system_consumer.create_consumer(SYSTEM_TOPIC_NAME, "system_group").await {
+        while let Some(message) = system_consumer.stream().next().await {
+            match message {
+                Ok(msg) => {
+                    if let Some(payload) = msg.payload() {
+                        let payload_str = std::str::from_utf8(payload).unwrap();
+                        let payload_str = String::from(payload_str);
+                        let headers = msg.headers().expect("cannot get headers");
+                        let headers = headers_to_map(headers);
+                        let group_id = headers.get("key").expect("cannot get a key").expect("cannot get a group_id");
+                        let group_id = std::str::from_utf8(group_id).expect("cannot parse a group_id from &[u8]");
+                        let group_id = String::from(group_id);
+                        let topic_name = headers.get("topic_name").expect("cannot get a topic_name").expect("cannot get a topic_name");
+                        let topic_name = std::str::from_utf8(topic_name).expect("cannot parse a topic_name from &[u8]");
+                        let topic_name = String::from(topic_name);
+                        println!("Получено сообщение: {}, {}", payload_str, group_id);
+                        tokio::spawn(async move {
 
-    let stream = ConsumerGroupBuilder::<TcpConnection>::new(
-        bootstrap_addrs,
-        group_id,
-        TopicPartitionsBuilder::new()
-            .assign(src_topic, vec![0, 1, 2, 3])
-            .build(),
-    )
-        .await
-        .map_err(|err| tracing::error!("{:?}", err))?
-        .build()
-        .await
-        .map_err(|err| tracing::error!("{:?}", err))?
-        .into_stream();
-        // .throttle(Duration::from_secs(2));
+                            let topic_name = String::from(topic_name);
+                            let group_id = String::from(group_id); 
+                            let payload_str = String::from(payload_str);
 
-    tokio::pin!(stream);
-    let file = File::create("output.ogg").expect("cannot create file");
-    let writer = BufWriter::new(file);
-    let duration = Rc::new(RefCell::new(0u64));
+                            let file_name = format!("{}.ogg", group_id);
+                            let file = OpenOptions::new()
+                                .write(true)
+                                .create(true)
+                                .open(file_name)
+                                .expect("cannot create a file");
+                            let writer = BufWriter::new(file);
 
-    let mut ogg_writer = ogg::writing::PacketWriter::new(writer);
-    let _ = ogg_writer.write_packet(
-        generate_identification_header(),
-        12345678,
-        ogg::PacketWriteEndInfo::EndPage,
-        0);
-    let _ = ogg_writer.write_packet(
-        generate_comment_header(),
-        12345678,
-        ogg::PacketWriteEndInfo::EndPage,
-        0);    
+                            let duration = Arc::new(RwLock::new(0u64));
+                            let serial = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .expect("cannot get duration")
+                                .as_secs() as u32;
+                            let mut ogg_writer = ogg::writing::PacketWriter::new(writer);
+                            let _ = ogg_writer.write_packet(
+                                generate_identification_header(),
+                                serial,
+                                ogg::PacketWriteEndInfo::EndPage,
+                                0);
+                            let _ = ogg_writer.write_packet(
+                                generate_comment_header(),
+                                serial,
+                                ogg::PacketWriteEndInfo::EndPage,
+                                0);    
 
-    while let Some(message) = stream.next().await {
-        let messages: Vec<ConsumeMessage> = message.unwrap().collect();
-        messages.iter().for_each(|item| {
-            emit_packet(item.value.to_vec(), &mut ogg_writer, duration.clone());
-        });
+                            let mut builder = KafkaConsumer::new();
+                            let consumer = builder.create_consumer(&topic_name, &group_id).await;
+                            if let Ok(common_consumer) = consumer {
+                                let consumer_type = ConsumerType::from_str(&payload_str).expect("cannot get ConsumerTpe");
+                                match consumer_type {
+                                    ConsumerType::Common => {
+                                        while let Some(message) = common_consumer.stream().next().await {
+                                            match message {
+                                                Ok(msg) => {
+                                                    if let Some(payload) = msg.payload() {
+                                                        emit_packet(payload.to_vec(), &mut ogg_writer, duration.clone(), serial);
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    eprintln!("Ошибка при получении сообщения: {:?}", e);
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    },
+                                    ConsumerType::Unit => {
+                                        while let Some(message) = common_consumer.stream().next().await {
+                                            match message {
+                                                Ok(msg) => {
+                                                    let user_key = std::str::from_utf8(msg.key().unwrap()).expect("cannot get a user_key");
+                                                    if let Some(payload) = msg.payload() {
+                                                        if group_id.eq(user_key) {
+                                                            emit_packet(payload.to_vec(), &mut ogg_writer, duration.clone(), serial);
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    eprintln!("Ошибка при получении сообщения: {:?}", e);
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    
+                                    },
+                                }
+                            }
+                        });
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Ошибка при получении сообщения: {:?}", e);
+                }
+            }
+        }
     }
+
     Ok(())
 }
 
 fn emit_packet(
     bytes: Vec<u8>,
         ogg_writer: &mut ogg::writing::PacketWriter<BufWriter<File>>, 
-        duration: Rc<RefCell<u64>>
+        duration: Arc<RwLock<u64>>,
+        serial: u32,
     ) {
     match PacketWrapper::parse_from_bytes(&bytes) {
         Ok(media_packet) => {
@@ -84,19 +165,21 @@ fn emit_packet(
             let media_type = packet.media_type.enum_value().unwrap();
             if media_type == MediaType::AUDIO && packet.duration > 0.0 {
 
-                info!("media_type {}", media_type);
+                // info!("media_type {}", media_type);
                 let data = packet.data;
-                let dur = duration.borrow().clone() + 960 as u64;
-                duration.replace(dur);
-                let absgp = duration.borrow().clone();
+                // let dur = duration.read().unwrap().clone() + 960 as u64;
+                let mut write_duration = duration.write().expect("cannot get a duration");
+                *write_duration += 960;
+                let absgp = write_duration.clone();
+                let absgp = packet.timestamp as u64;
                 match ogg_writer.write_packet(
                     Cow::Owned(data),
-                    12345678,
+                    serial,
                     ogg::PacketWriteEndInfo::EndPage,
                     absgp
                 ) {
                     Ok(_) => {
-                        info!("all ok");
+                        // info!("all ok");
                     }
                     Err(err) => {
                         tracing::error!("{}", err)
@@ -136,4 +219,15 @@ fn generate_comment_header() -> Vec<u8> {
     header.extend_from_slice(&[0, 0, 0, 0]); // User comments length (0 comments)
     header.extend_from_slice("Duration: 10".as_bytes());
     header
+}
+
+fn headers_to_map(headers: &BorrowedHeaders) -> HashMap<&str, Option<&[u8]>> {
+    let mut map =  HashMap::new();
+    headers
+        .iter()
+        .for_each(|header| {
+            map.insert(header.key, header.value);
+        });
+
+    map
 }

@@ -3,6 +3,8 @@ use futures::StreamExt;
 use protobuf::Message;
 use quinn::crypto::rustls::HandshakeData;
 use quinn::VarInt;
+use rdkafka::producer::FutureRecord;
+use rdkafka::util::Timeout;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,7 +18,7 @@ use types::protos::packet_wrapper::packet_wrapper::PacketType;
 use types::protos::packet_wrapper::PacketWrapper;
 use web_transport_quinn::Session;
 
-use crate::kafka::kafka_client::KafkaClient;
+use crate::kafka::kafka_rdclient::KafkaClient;
 
 pub const WEB_TRANSPORT_ALPN: &[&[u8]] = &[b"h3", b"h3-32", b"h3-31", b"h3-30", b"h3-29"];
 
@@ -262,7 +264,11 @@ async fn handle_session(
         let session = session.clone();
         let nc = nc.clone();
         let specific_subject = specific_subject.clone();
-        let producer_client = KafkaClient::producer_client().await.expect("cannot get producer_client");
+        let topic_name = String::from(lobby_id);
+        let mut kafka_client = KafkaClient::new();
+        kafka_client.create_topic(&topic_name, &specific_subject).await;
+        let producer_client = kafka_client
+            .create_producer().await.expect("cannot create a producer");
         let producer_client = Arc::new(tokio::sync::RwLock::new(producer_client));
         tokio::spawn(async move {
             let producer_client = Arc::clone(&producer_client);
@@ -271,6 +277,7 @@ async fn handle_session(
                 let producer_client = Arc::clone(&producer_client);
                 let nc = nc.clone();
                 let specific_subject = specific_subject.clone();
+                let topic_name = topic_name.clone();
                 tokio::spawn(async move {
                     let result = uni_stream.read_to_end(1_000_000).await;
                     let kafka_key = specific_subject.clone();
@@ -278,22 +285,18 @@ async fn handle_session(
                         Ok(buf) => {
                             tokio::spawn(async move {
                                 if let Err(e) =
-                                    nc.publish(specific_subject.clone(), buf.clone().into()).await
-                                {
+                                    nc.publish(specific_subject.clone(), buf.clone().into()).await {
                                     error!(
                                         "Error publishing to subject {}: {}",
                                         &specific_subject, e
                                     );
                                 } else {
                                     tokio::spawn(async move {
-                                        let message = samsa::prelude::ProduceMessage {
-                                            topic: "test".to_string(),
-                                            partition_id: 0i32,
-                                            key: Some(bytes::Bytes::copy_from_slice(kafka_key.as_bytes())),
-                                            value: Some(buf.into()),
-                                            headers: vec![samsa::prelude::Header::new(String::from("Key"), bytes::Bytes::from("Value"))]
-                                        };
-                                        producer_client.read().await.produce(message).await;
+                                        let binding = buf.into();
+                                        let record: FutureRecord<'_, String, Vec<u8>> = FutureRecord::to(&topic_name)
+                                            .key(&kafka_key)
+                                            .payload(&binding);
+                                        let _ = producer_client.read().await.send(record, Timeout::After(Duration::from_millis(10))).await;
                                     });
                                 }
                             });

@@ -1,1 +1,2 @@
-pub mod kafka_client;
+pub mod kafka_rdclient;
+pub mod kafka_consumer;
