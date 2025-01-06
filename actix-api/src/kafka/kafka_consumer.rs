@@ -1,8 +1,6 @@
-use rdkafka::{consumer::{Consumer, StreamConsumer}, error::KafkaError, ClientConfig, Message, TopicPartitionList};
-use futures::StreamExt;
-use tracing::info;
+use rdkafka::{consumer::{Consumer, StreamConsumer}, error::KafkaError, ClientConfig, TopicPartitionList};
 
-
+const KAFKA_CONNECTION_URL: &str = "localhost:9092";
 
 pub struct KafkaConsumer {
     client_config: ClientConfig,
@@ -12,7 +10,7 @@ impl KafkaConsumer {
     pub fn new() -> Self {
         let mut client_config = ClientConfig::new();
         client_config
-            .set("bootstrap.servers", "localhost:9092");
+            .set("bootstrap.servers", KAFKA_CONNECTION_URL);
         Self {
             client_config,
         }
@@ -22,7 +20,7 @@ impl KafkaConsumer {
 
         let consumer: StreamConsumer = self.client_config
             .set("group.id", key)
-            .set("bootstrap.servers", "localhost:9092")
+            .set("bootstrap.servers", KAFKA_CONNECTION_URL)
             .create()
             .expect("cannot create a consumer");
         let partitions = vec![0];

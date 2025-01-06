@@ -1,10 +1,10 @@
 use std::time::Duration;
 
-use rdkafka::{admin::{AdminClient, AdminOptions, NewTopic, TopicReplication}, client::DefaultClientContext, error::KafkaError, message::{Header, OwnedHeaders}, producer::{self, FutureProducer, FutureRecord}, types::RDKafkaErrorCode, util::Timeout, ClientConfig};
+use rdkafka::{admin::{AdminClient, AdminOptions, NewTopic, TopicReplication}, client::DefaultClientContext, error::KafkaError, message::{Header, OwnedHeaders}, producer::{FutureProducer, FutureRecord}, types::RDKafkaErrorCode, util::Timeout, ClientConfig};
 use tracing::{error, info};
 
 const SYSTEM_TOPIC_NAME: &str = "system_events";
-
+const KAFKA_CONNECTION_URL: &str = "localhost:9092";
 pub struct KafkaClient {
     client_config: ClientConfig,
     system_producer: Result<FutureProducer, KafkaError>,
@@ -15,7 +15,7 @@ impl KafkaClient {
     pub fn new() -> Self {
         let mut client_config = ClientConfig::new();
         client_config
-            .set("bootstrap.servers", "localhost:9092")
+            .set("bootstrap.servers", KAFKA_CONNECTION_URL)
             .set("message.timeout.ms", "5000");
         let system_producer: Result<FutureProducer, KafkaError> = client_config
             .create();
@@ -48,7 +48,7 @@ impl KafkaClient {
         for res in result {
             match res {
                 Ok(name) => {
-                    info!("Топик '{}' успешно создан.", name);
+                    info!("Topic '{}' created successfully.", name);
                     if let Ok(producer) = &self.system_producer {
                         let message = &"unit".as_bytes().to_vec();
                         let record: FutureRecord<'_, String, Vec<u8>> = FutureRecord::to(SYSTEM_TOPIC_NAME)
@@ -59,7 +59,7 @@ impl KafkaClient {
                     }
                 },
                 Err((topic_name, code)) => {
-                    error!("Ошибка при создании топика: {:?}, {:?}", topic_name, code);
+                    error!("Error creating topic: {:?}, {:?}", topic_name, code);
                     if RDKafkaErrorCode::TopicAlreadyExists == code {
                         if let Ok(producer) = &self.system_producer {
                             let message = &"unit".as_bytes().to_vec();

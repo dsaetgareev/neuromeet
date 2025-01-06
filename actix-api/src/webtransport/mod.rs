@@ -210,6 +210,7 @@ async fn handle_session(
 
     let subject = format!("room.{}.*", lobby_id).replace(' ', "_");
     let specific_subject = format!("room.{}.{}", lobby_id, username).replace(' ', "_");
+    let topic_key = specific_subject.clone();
     let mut sub = match nc
         .queue_subscribe(subject.clone(), specific_subject.clone())
         .await
@@ -259,17 +260,21 @@ async fn handle_session(
             }
         })
     };
+    
+    let topic_name = String::from(lobby_id);
+    let mut kafka_client = KafkaClient::new();
+    kafka_client.create_topic(&topic_name, &specific_subject).await;
+    let producer_client = kafka_client
+        .create_producer()
+        .await
+        .expect("cannot create a producer");
+    let producer_client = Arc::new(tokio::sync::RwLock::new(producer_client));
 
     let quic_task = {
         let session = session.clone();
         let nc = nc.clone();
         let specific_subject = specific_subject.clone();
-        let topic_name = String::from(lobby_id);
-        let mut kafka_client = KafkaClient::new();
-        kafka_client.create_topic(&topic_name, &specific_subject).await;
-        let producer_client = kafka_client
-            .create_producer().await.expect("cannot create a producer");
-        let producer_client = Arc::new(tokio::sync::RwLock::new(producer_client));
+        let producer_client = Arc::clone(&producer_client);
         tokio::spawn(async move {
             let producer_client = Arc::clone(&producer_client);
             let session = session.read().await;
@@ -296,7 +301,11 @@ async fn handle_session(
                                         let record: FutureRecord<'_, String, Vec<u8>> = FutureRecord::to(&topic_name)
                                             .key(&kafka_key)
                                             .payload(&binding);
-                                        let _ = producer_client.read().await.send(record, Timeout::After(Duration::from_millis(10))).await;
+                                        let _ = producer_client
+                                            .read()
+                                            .await
+                                            .send(record, Timeout::After(Duration::from_millis(10)))
+                                            .await;
                                     });
                                 }
                             });
@@ -324,6 +333,9 @@ async fn handle_session(
     quic_task.await?;
     should_run.store(false, Ordering::SeqCst);
     nats_receive_task.abort();
+    let record: FutureRecord<'_, String, Vec<u8>> = FutureRecord::to(lobby_id)
+        .key(&topic_key);
+    let _ = producer_client.read().await.send(record, Timeout::After(Duration::from_millis(10))).await;
     info!("Finished handling session");
     Ok(())
 }

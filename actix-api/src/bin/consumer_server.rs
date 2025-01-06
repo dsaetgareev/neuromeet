@@ -1,9 +1,10 @@
-use std::{borrow::Cow, collections::HashMap, fs::{File, OpenOptions}, io::BufWriter, str::FromStr, sync::{Arc, RwLock}, time::{SystemTime, UNIX_EPOCH}};
+use std::{borrow::Cow, collections::HashMap, sync::{Arc, RwLock}, time::{SystemTime, UNIX_EPOCH}};
 
+use object_store::{aws::AmazonS3Builder, path::Path, ObjectStore, WriteMultipart};
 use protobuf::Message as _;
 use rand::Rng;
 use rdkafka::{message::{BorrowedHeaders, Headers}, Message};
-use sec_api::kafka::kafka_consumer::KafkaConsumer;
+use sec_api::{kafka::kafka_consumer::KafkaConsumer, s3::s3_writer::S3Writer};
 use tokio_stream::StreamExt;
 use types::protos::{media_packet::{media_packet::MediaType, MediaPacket}, packet_wrapper::PacketWrapper};
 
@@ -13,31 +14,6 @@ const SYSTEM_TOPIC_NAME: &str = "system_events";
 pub enum ConsumerError {
     Error
 }
-
-pub enum ConsumerType {
-    Common,
-    Unit,
-}
-
-pub struct Unit {
-    serial: u64,
-    duration: Arc<RwLock<u64>>
-}
-
-impl FromStr for ConsumerType {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-         match s {
-            "common" => Ok(ConsumerType::Common),
-            "unit" => Ok(ConsumerType::Unit),
-            "Common" => Ok(ConsumerType::Common),
-            "Unit" => Ok(ConsumerType::Unit),
-            _ => Err(format!("Unknown variant: {}", s)),
-        }
-    }
-}
-
 
 #[tokio::main]
 async fn main() -> Result<(), ()> {
@@ -61,11 +37,17 @@ async fn main() -> Result<(), ()> {
                         let payload_str = String::from(payload_str);
                         let headers = msg.headers().expect("cannot get headers");
                         let headers = headers_to_map(headers);
-                        let group_id = headers.get("key").expect("cannot get a key").expect("cannot get a group_id");
-                        let group_id = std::str::from_utf8(group_id).expect("cannot parse a group_id from &[u8]");
+                        let group_id = headers.get("key")
+                            .expect("cannot get a key")
+                            .expect("cannot get a group_id");
+                        let group_id = std::str::from_utf8(group_id)
+                            .expect("cannot parse a group_id from &[u8]");
                         let group_id = String::from(group_id);
-                        let topic_name = headers.get("topic_name").expect("cannot get a topic_name").expect("cannot get a topic_name");
-                        let topic_name = std::str::from_utf8(topic_name).expect("cannot parse a topic_name from &[u8]");
+                        let topic_name = headers.get("topic_name")
+                            .expect("cannot get a topic_name")
+                            .expect("cannot get a topic_name");
+                        let topic_name = std::str::from_utf8(topic_name)
+                            .expect("cannot parse a topic_name from &[u8]");
                         let topic_name = String::from(topic_name);
                         println!("Получено сообщение: {}, {}", payload_str, group_id);
                         tokio::spawn(async move {
@@ -73,17 +55,24 @@ async fn main() -> Result<(), ()> {
                             let topic_name = String::from(topic_name);
                             let group_id = String::from(group_id); 
 
-                            let file_name = format!("{}.ogg", group_id);
-                            let file = OpenOptions::new()
-                                .write(true)
-                                .create(true)
-                                .open(file_name)
-                                .expect("cannot create a file");
-                            let writer = BufWriter::new(file);
+                            let file_name = format!("{}/{}.ogg", topic_name, group_id);
 
-                            let duration = Arc::new(RwLock::new(0u64));
+                            let bucket_name = "test";
+                            let object_store = get_mini_store(bucket_name)
+                                .expect("cannot get a object sotre");
+
+                            let path = Path::from(file_name);
+
+                            let upload = object_store.put_multipart(&path).await.expect("cannot get upload");
+                            let write = WriteMultipart::new(upload);
+                            let mut multipart_writer = S3Writer::new(write, 256);
+                            let time = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .expect("cannot get timestamp")
+                                .as_millis() as u64;
+                            let duration = Arc::new(RwLock::new(time));
                             let serial = rand::thread_rng().gen();
-                            let mut ogg_writer = ogg::writing::PacketWriter::new(writer);
+                            let mut ogg_writer = ogg::writing::PacketWriter::new(&mut multipart_writer);
                             let _ = ogg_writer.write_packet(
                                 generate_identification_header(),
                                 serial,
@@ -94,18 +83,25 @@ async fn main() -> Result<(), ()> {
                                 serial,
                                 ogg::PacketWriteEndInfo::EndPage,
                                 0);    
-
                             let mut builder = KafkaConsumer::new();
                             let consumer = builder.create_consumer(&topic_name, &group_id).await;
                             if let Ok(common_consumer) = consumer {
                                 while let Some(message) = common_consumer.stream().next().await {
                                     match message {
                                         Ok(msg) => {
-                                            let user_key = std::str::from_utf8(msg.key().unwrap()).expect("cannot get a user_key");
+                                            let user_key = std::str::from_utf8(msg.key().unwrap())
+                                                .expect("cannot get a user_key");
                                             if let Some(payload) = msg.payload() {
                                                 if group_id.eq(user_key) {
-                                                    emit_packet(payload.to_vec(), &mut ogg_writer, duration.clone(), serial);
+                                                    emit_packet(
+                                                        payload.to_vec(),
+                                                        &mut ogg_writer,
+                                                        duration.clone(),
+                                                        serial
+                                                    );
                                                 }
+                                            } else {
+                                                break;
                                             }
                                         }
                                         Err(e) => {
@@ -114,6 +110,12 @@ async fn main() -> Result<(), ()> {
                                         }
                                     }
                                 }
+                                let _ = ogg_writer.write_packet(
+                                    Vec::new(),
+                                    serial,
+                                    ogg::PacketWriteEndInfo::EndStream,
+                                    *duration.read().unwrap());
+                                multipart_writer.finish().await.unwrap();
                             }
                         });
                     }
@@ -130,7 +132,7 @@ async fn main() -> Result<(), ()> {
 
 fn emit_packet(
     bytes: Vec<u8>,
-        ogg_writer: &mut ogg::writing::PacketWriter<BufWriter<File>>, 
+        ogg_writer: &mut ogg::writing::PacketWriter<&mut S3Writer>, 
         duration: Arc<RwLock<u64>>,
         serial: u32,
     ) {
@@ -145,19 +147,14 @@ fn emit_packet(
                 let mut write_duration = duration.write().expect("cannot get a duration");
                 *write_duration += 960;
                 let absgp = write_duration.clone();
-                match ogg_writer.write_packet(
+                if let Err(err) = ogg_writer.write_packet(
                     Cow::Owned(data),
                     serial,
                     ogg::PacketWriteEndInfo::EndPage,
                     absgp
                 ) {
-                    Ok(_) => {
-                        // info!("all ok");
-                    }
-                    Err(err) => {
-                        tracing::error!("{}", err)
-                    },
-                } ;
+                    tracing::error!("{}", err)
+                }
             }
 
         },
@@ -203,4 +200,22 @@ fn headers_to_map(headers: &BorrowedHeaders) -> HashMap<&str, Option<&[u8]>> {
         });
 
     map
+}
+
+fn get_mini_store(bucket_name: &str) -> Result<Arc<dyn ObjectStore>, String> {
+    let minio_access_key_id = "Nw7N0DMb0fo7OpfJDYxE";
+    let minio_secret_access_key = "wQ9rV5ZWaL7ooccjaGYAGqcLUNjWbm5dg0Tr7z7X";
+    let minio_endpoint = "http://127.0.0.1:9000";
+
+    let minio = AmazonS3Builder::new()
+    .with_access_key_id(minio_access_key_id)
+    .with_secret_access_key(minio_secret_access_key)
+    .with_endpoint(minio_endpoint) 
+    .with_bucket_name(bucket_name)
+    .with_region("us-east-1") 
+    .with_allow_http(true) 
+    .build()
+    .map_err(|e| format!("Error creating MinIO client: {}", e))?;
+
+    Ok(Arc::new(minio))
 }
