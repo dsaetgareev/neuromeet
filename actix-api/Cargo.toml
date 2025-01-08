@@ -19,6 +19,10 @@ path = "src/bin/websocket_server.rs"
 name = "consumer_server"
 path = "src/bin/consumer_server.rs"
 
+[[bin]]
+name = "file_server"
+path = "src/bin/file_server.rs"
+
 [dependencies]
 actix = "0.13.0"
 actix-cors = "0.6.1"

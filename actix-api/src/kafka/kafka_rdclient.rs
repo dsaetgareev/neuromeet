@@ -9,14 +9,14 @@ const KAFKA_CONNECTION_URL: &str = "localhost:9092";
 #[derive(PartialEq)]
 pub enum SystemEvent {
     Create,
-    Dead,
+    Leave,
 }
 
 impl SystemEvent {
     pub fn to_string(&self) -> &'static str {
         match self {
             SystemEvent::Create => "Create",
-            SystemEvent::Dead => "Dead",
+            SystemEvent::Leave => "Leave",
         }
     }
 }
@@ -27,7 +27,7 @@ impl FromStr for SystemEvent {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "Create" => Ok(SystemEvent::Create),
-            "Dead" => Ok(SystemEvent::Dead),
+            "Leave" => Ok(SystemEvent::Leave),
             _ => Err(format!("Unknown variant: {}", s)),
         }
     }
@@ -107,7 +107,7 @@ impl KafkaClient {
     pub async fn create_system_event(&self, topic_name: &str, key: &String) -> Result<(), ()> {
         self.send_system_event(SystemEvent::Create, topic_name, key).await
     }
-    pub async fn dead_system_event(&self, topic_name: &str, key: &String) -> Result<(), ()> {  
-        self.send_system_event(SystemEvent::Dead, topic_name, key).await
+    pub async fn leave_system_event(&self, topic_name: &str, key: &String) -> Result<(), ()> {  
+        self.send_system_event(SystemEvent::Leave, topic_name, key).await
     }
 }

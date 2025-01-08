@@ -4,8 +4,9 @@ use object_store::{aws::AmazonS3Builder, path::Path, ObjectStore, WriteMultipart
 use protobuf::Message as _;
 use rand::Rng;
 use rdkafka::{message::{BorrowedHeaders, Headers}, Message};
-use sec_api::{kafka::{kafka_consumer::KafkaConsumer, SystemEvent}, s3::s3_writer::S3Writer};
+use sec_api::{kafka::{kafka_consumer::KafkaConsumer, kafka_rdclient::KafkaClient, SystemEvent}, s3::s3_writer::S3Writer};
 use tokio_stream::StreamExt;
+use tracing::info;
 use types::protos::{media_packet::{media_packet::MediaType, MediaPacket}, packet_wrapper::PacketWrapper};
 
 const SYSTEM_TOPIC_NAME: &str = "system_events";
@@ -55,7 +56,13 @@ async fn main() -> Result<(), ()> {
                                 let topic_name = String::from(topic_name);
                                 let group_id = String::from(group_id); 
 
-                                let file_name = format!("{}/{}.ogg", topic_name, group_id);
+                                let time = SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .expect("cannot get timestamp")
+                                    .as_millis() as u64;
+                                let duration = Arc::new(RwLock::new(time));
+                                let serial = rand::thread_rng().gen();
+                                let file_name = format!("{}/{}.{}.ogg", topic_name, group_id, time);
 
                                 let bucket_name = "test";
                                 let object_store = get_mini_store(bucket_name)
@@ -65,13 +72,7 @@ async fn main() -> Result<(), ()> {
 
                                 let upload = object_store.put_multipart(&path).await.expect("cannot get upload");
                                 let write = WriteMultipart::new(upload);
-                                let mut multipart_writer = S3Writer::new(write, 256);
-                                let time = SystemTime::now()
-                                    .duration_since(UNIX_EPOCH)
-                                    .expect("cannot get timestamp")
-                                    .as_millis() as u64;
-                                let duration = Arc::new(RwLock::new(time));
-                                let serial = rand::thread_rng().gen();
+                                let mut multipart_writer = S3Writer::new(write, 128);
                                 let mut ogg_writer = ogg::writing::PacketWriter::new(&mut multipart_writer);
                                 let _ = ogg_writer.write_packet(
                                     generate_identification_header(),
@@ -91,17 +92,17 @@ async fn main() -> Result<(), ()> {
                                             Ok(msg) => {
                                                 let user_key = std::str::from_utf8(msg.key().unwrap())
                                                     .expect("cannot get a user_key");
-                                                if let Some(payload) = msg.payload() {
-                                                    if group_id.eq(user_key) {
+                                                if group_id.eq(user_key) {
+                                                    if let Some(payload) = msg.payload() {
                                                         emit_packet(
                                                             payload.to_vec(),
                                                             &mut ogg_writer,
                                                             duration.clone(),
                                                             serial
                                                         );
+                                                    } else {
+                                                        break;
                                                     }
-                                                } else {
-                                                    break;
                                                 }
                                             }
                                             Err(e) => {
@@ -116,6 +117,12 @@ async fn main() -> Result<(), ()> {
                                         ogg::PacketWriteEndInfo::EndStream,
                                         *duration.read().unwrap());
                                     multipart_writer.finish().await.unwrap();
+                                    let producer = KafkaClient::new();
+                                    info!("leaved {}", group_id);
+                                    producer
+                                        .send_system_event(SystemEvent::Leave, &topic_name, &group_id)
+                                        .await
+                                        .expect("cannot send SystemEvent::Leave");
                                 }
                             });
                         }
