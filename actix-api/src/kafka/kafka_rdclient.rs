@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::Duration};
+use std::{str::FromStr, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use rdkafka::{admin::{AdminClient, AdminOptions, NewTopic, TopicReplication}, client::DefaultClientContext, error::KafkaError, message::{Header, OwnedHeaders}, producer::{FutureProducer, FutureRecord}, types::RDKafkaErrorCode, util::Timeout, ClientConfig};
 use tracing::{error, info};
@@ -91,9 +91,14 @@ impl KafkaClient {
 
     pub async fn send_system_event(&self, system_event: SystemEvent, topic_name: &str, key: &String) -> Result<(), ()> {
         if let Ok(producer) = &self.system_producer {
+            let time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("cannot get timestamp")
+                .as_millis() as u64;
             let headers = OwnedHeaders::new()
                 .insert(Header { key: "key", value: Some(key) })
-                .insert(Header { key: "topic_name", value: Some(topic_name) });
+                .insert(Header { key: "topic_name", value: Some(topic_name) })
+                .insert(Header { key: "timestamp", value: Some(&time.to_string()) });
             let message = system_event.to_string().as_bytes().to_vec();
             let record: FutureRecord<'_, String, Vec<u8>> = FutureRecord::to(SYSTEM_TOPIC_NAME)
                 .key(key)

@@ -1,11 +1,11 @@
-use std::{collections::HashMap, io::Cursor, str::FromStr, sync::Arc};
+use std::{collections::HashMap, fs::File, io::{Read, Write}, path::PathBuf, process::Command, str::FromStr, sync::Arc};
 
 use futures::StreamExt;
 use object_store::{aws::AmazonS3Builder, path::Path, ObjectStore};
-use ogg::{PacketReader, PacketWriteEndInfo, PacketWriter};
 use rdkafka::{message::{BorrowedHeaders, Headers}, Message};
 use sec_api::kafka::{kafka_consumer::KafkaConsumer, SystemEvent};
 use tracing::error;
+use dotenv::dotenv;
 
 
 const SYSTEM_TOPIC_NAME: &str = "system_events";
@@ -52,9 +52,11 @@ impl Room {
     }
 }
 
-
 #[tokio::main]
 async fn main() -> Result<(), ()> {
+
+    dotenv().ok();
+
     tracing_subscriber::fmt()
     .with_max_level(tracing::Level::INFO)
     .compact()
@@ -114,16 +116,15 @@ async fn main() -> Result<(), ()> {
                                     }
                                     if room.unit_count == 0 {
                                         println!("allreade for job");
-                                        let file_name = format!("{}.ogg", topic_name);
-                                        let ogg_file = std::fs::File::create(file_name).unwrap();
-                                        let mut ogg_writer = PacketWriter::new(ogg_file);
+
+                                        let mut temp_files = Vec::new();
+                                        let mut timestamps = Vec::new();
 
                                         let bucket_name = "test";
                                         let object_store = get_mini_store(bucket_name)
                                             .expect("cannot get a object sotre");
                                         let path = format!("{}/", topic_name);
                                         let directory_path = Path::from(path);
-
                                         let mut list_stream = object_store.list(Some(&directory_path));
                                     
                                         while let Some(file) = list_stream.next().await {
@@ -133,34 +134,117 @@ async fn main() -> Result<(), ()> {
                                                     println!("Size: {} bytes", object_meta.size);
                                                     println!("Last modified: {:?}", object_meta.last_modified);
 
+                                                    let file_name = object_meta.location.to_string();
+                                                    let mut split_name = file_name.split(".");
+                                                    let split_count = split_name.clone().count();
+                                                    let timestamp = split_name
+                                                        .nth(split_count - 2)
+                                                        .unwrap()
+                                                        .parse::<u64>()
+                                                        .ok()
+                                                        .unwrap();
+
+                                                    timestamps.push(timestamp);
+
                                                     let path = Path::from(object_meta.location);
                                                     let object = object_store.get(&path).await.unwrap();
                                                     let bytes = object.bytes().await.unwrap();
-                                            
-                                                    // let mut ogg_reader = PacketReader::new(bytes.as_ref());
-                                                    let mut ogg_reader = PacketReader::new(Cursor::new(bytes.as_ref()));
-                                                    ogg_reader.delete_unread_packets();
 
-                                                    while let Some(pck) = ogg_reader.read_packet().unwrap() {
-                                                        let inf = if pck.last_in_stream() {
-                                                            PacketWriteEndInfo::EndStream
-                                                        } else if pck.last_in_page() {
-                                                            PacketWriteEndInfo::EndPage
-                                                        } else {
-                                                            PacketWriteEndInfo::NormalPacket
-                                                        };
-                                                        let stream_serial = pck.stream_serial();
-                                                        let absgp_page = pck.absgp_page();
-                                                        let _ = ogg_writer.write_packet(pck.data,
-                                                            stream_serial,
-                                                            inf,
-                                                            absgp_page);
-                                                    }
+
+                                                    let temp_file = PathBuf::from(format!("{}.ogg", timestamp));
+                                                    let mut file = File::create(&temp_file).expect("Не удалось создать временный файл");
+                                                    file.write_all(&bytes).expect("Не удалось записать данные в файл");
+
+                                                    temp_files.push((temp_file, timestamp));
+
                                                 }
                                                 Err(e) => eprintln!("Error listing file: {}", e),
                                             }
                                         }
 
+                                        let min_timestamp = timestamps.iter().min().expect("Нет файлов для обработки");
+
+                                        let mut ffmpeg_command = Command::new("ffmpeg");
+                                        ffmpeg_command.arg("arg-fflags +genpts+igndts");
+
+                                        let mut filter_graph = String::new();
+                                        let mut filter_graph_suffix = String::new();
+                                                                        
+                                        for (i, (temp_file, timestamp)) in temp_files.iter().enumerate() {
+                                            let mut delay = timestamp - min_timestamp;
+                                            if delay > 3900 {
+                                                delay = delay - 3900;
+                                            }
+                                            filter_graph.push_str(&format!("[{}:a]adelay={}ms[delayed{}];", i, delay, i + 1));
+                                            filter_graph_suffix.push_str(&format!("[delayed{}]", i + 1));
+                                            ffmpeg_command
+                                                .arg("-i")
+                                                .arg(temp_file);
+                                        }
+
+                                        filter_graph.push_str(&filter_graph_suffix);
+                                    
+                                        filter_graph
+                                            .push_str(&format!("amix=inputs={}:duration=longest", temp_files.len()));
+
+                                        println!("{}", filter_graph);
+                                    
+                                        let output_file = format!("{}.ogg", topic_name);
+                                        ffmpeg_command
+                                            .arg("-filter_complex")
+                                            .arg(filter_graph)
+                                            .arg(output_file.clone());
+                                    
+                                    
+                                        let output = ffmpeg_command.output().expect("Не удалось запустить ffmpeg");
+
+                                        if output.status.success() {
+                                            println!("Аудио успешно наложено и сохранено.");
+                                            let output_path = Path::from(format!("{}/{}.ogg", topic_name, topic_name));
+                                            let mut file = File::open(&output_file).expect("Не удалось открыть временный файл");
+
+                                            let mut multipart_upload = object_store
+                                                .put_multipart(&output_path)
+                                                .await
+                                                .expect("Не удалось начать multipart-загрузку");
+
+                                            let part_size = 5 * 1024 * 1024; // 5 МБ
+                                            let mut buffer = vec![0; part_size];
+                                            let mut part_number = 1;
+
+                                            loop {
+                                                let bytes_read = file.read(&mut buffer).expect("Не удалось прочитать файл");
+                                                if bytes_read == 0 {
+                                                    break; // Файл полностью прочитан
+                                                }
+                                        
+                                                // Загружаем часть
+                                                let part_data = buffer[..bytes_read].to_vec();
+                                                multipart_upload
+                                                    .put_part(part_data.into())
+                                                    .await
+                                                    .expect("Не удалось загрузить часть файла");
+                                        
+                                        
+                                                println!("Часть {} загружена.", part_number);
+                                                part_number += 1;
+                                            }
+
+                                            multipart_upload
+                                                .complete()
+                                                .await
+                                                .expect("Не удалось завершить multipart-загрузку");
+
+                                            println!("Файл успешно загружен в S3: {}", output_path);
+                                        } else {
+                                            eprintln!("Ошибка при наложении аудио:");
+                                            eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+                                        }
+                                    
+                                        for (temp_file, _timestamp) in temp_files {
+                                            std::fs::remove_file(temp_file).expect("Не удалось удалить временный файл");
+                                        }
+                                        std::fs::remove_file(output_file).expect("Не удалось удалить временный выходной файл");
                                     }
                                 }
                             },
@@ -189,8 +273,8 @@ fn headers_to_map(headers: &BorrowedHeaders) -> HashMap<&str, Option<&[u8]>> {
 }
 
 fn get_mini_store(bucket_name: &str) -> Result<Arc<dyn ObjectStore>, String> {
-    let minio_access_key_id = "Nw7N0DMb0fo7OpfJDYxE";
-    let minio_secret_access_key = "wQ9rV5ZWaL7ooccjaGYAGqcLUNjWbm5dg0Tr7z7X";
+    let minio_access_key_id = std::env::var("MINIO_ACCESS_KEY_ID").expect("MINIO_ACCESS_KEY_ID env var must be defined");
+    let minio_secret_access_key = std::env::var("MINIO_SECRET_ACCESS_KEY").expect("MINIO_SECRET_ACCESS_KEY env var must be defined");
     let minio_endpoint = "http://127.0.0.1:9000";
 
     let minio = AmazonS3Builder::new()

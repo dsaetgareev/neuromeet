@@ -8,8 +8,10 @@ use sec_api::{kafka::{kafka_consumer::KafkaConsumer, kafka_rdclient::KafkaClient
 use tokio_stream::StreamExt;
 use tracing::info;
 use types::protos::{media_packet::{media_packet::MediaType, MediaPacket}, packet_wrapper::PacketWrapper};
+use dotenv::dotenv;
 
 const SYSTEM_TOPIC_NAME: &str = "system_events";
+const SILENCE_PACKET: &[u8] = &[0xF8, 0xFF, 0xFE]; 
 
 #[derive(Debug)]
 pub enum ConsumerError {
@@ -18,6 +20,8 @@ pub enum ConsumerError {
 
 #[tokio::main]
 async fn main() -> Result<(), ()> {
+    dotenv().ok();
+
     tracing_subscriber::fmt()
     .with_max_level(tracing::Level::INFO)
     .compact()
@@ -50,17 +54,22 @@ async fn main() -> Result<(), ()> {
                             let topic_name = std::str::from_utf8(topic_name)
                                 .expect("cannot parse a topic_name from &[u8]");
                             let topic_name = String::from(topic_name);
+                            let create_time = headers.get("timestamp")
+                                .expect("cannot get a create_time")
+                                .expect("cannot get a create_time");
+                            let create_time = std::str::from_utf8(create_time)
+                                .expect("cannot parse a topic_name from &[u8]");
+                            let create_time = String::from(create_time); 
                             println!("Получено сообщение: {}, {}", payload_str, group_id);
                             tokio::spawn(async move {
 
                                 let topic_name = String::from(topic_name);
                                 let group_id = String::from(group_id); 
+                                let create_time = String::from(create_time); 
 
-                                let time = SystemTime::now()
-                                    .duration_since(UNIX_EPOCH)
-                                    .expect("cannot get timestamp")
-                                    .as_millis() as u64;
+                                let time = get_current_time();
                                 let duration = Arc::new(RwLock::new(time));
+                                let timestamp = Arc::new(RwLock::new(0));
                                 let serial = rand::thread_rng().gen();
                                 let file_name = format!("{}/{}.{}.ogg", topic_name, group_id, time);
 
@@ -78,12 +87,12 @@ async fn main() -> Result<(), ()> {
                                     generate_identification_header(),
                                     serial,
                                     ogg::PacketWriteEndInfo::EndPage,
-                                    0);
+                                    time);
                                 let _ = ogg_writer.write_packet(
-                                    generate_comment_header(),
+                                    generate_comment_header(time),
                                     serial,
                                     ogg::PacketWriteEndInfo::EndPage,
-                                    0);    
+                                    time);    
                                 let mut builder = KafkaConsumer::new();
                                 let consumer = builder.create_consumer(&topic_name, &group_id).await;
                                 if let Ok(common_consumer) = consumer {
@@ -98,6 +107,7 @@ async fn main() -> Result<(), ()> {
                                                             payload.to_vec(),
                                                             &mut ogg_writer,
                                                             duration.clone(),
+                                                            timestamp.clone(),
                                                             serial
                                                         );
                                                     } else {
@@ -142,6 +152,7 @@ fn emit_packet(
     bytes: Vec<u8>,
         ogg_writer: &mut ogg::writing::PacketWriter<&mut S3Writer>, 
         duration: Arc<RwLock<u64>>,
+        timestamp: Arc<RwLock<u64>>,
         serial: u32,
     ) {
     match PacketWrapper::parse_from_bytes(&bytes) {
@@ -149,10 +160,35 @@ fn emit_packet(
             let packet: MediaPacket  = parse_media_packet(&media_packet.data)
                 .expect("cannot get MediaPacket");
             let media_type = packet.media_type.enum_value().unwrap();
-            if media_type == MediaType::AUDIO && packet.duration > 0.0 {
+            if media_type == MediaType::AUDIO {
+                let packet_timestamp = packet.timestamp as u64;
+                let mut write_duration = duration.write().expect("cannot get a duration");
+                
+                let mut write_timestamp = timestamp.write().expect("cannot get a duration");
+                if *write_timestamp == 0 {
+                    *write_timestamp = packet_timestamp;
+                } else {
+                    let diff = packet_timestamp - *write_timestamp;
+                    let ostatoc = (diff / 20000) as i32;
+                    if ostatoc > 1 {
+                        info!("tishina {}, {}", ostatoc, diff);
+                        for _i in 0..ostatoc {
+                            *write_duration += 960;
+                            let absgp = write_duration.clone();
+                            if let Err(err) = ogg_writer.write_packet(
+                                Cow::Borrowed(SILENCE_PACKET),
+                                serial,
+                                ogg::PacketWriteEndInfo::EndPage,
+                                absgp
+                            ) {
+                                tracing::error!("{}", err);
+                            } 
+                        }
+                    }
+                    *write_timestamp = packet_timestamp;
+                }
 
                 let data = packet.data;
-                let mut write_duration = duration.write().expect("cannot get a duration");
                 *write_duration += 960;
                 let absgp = write_duration.clone();
                 if let Err(err) = ogg_writer.write_packet(
@@ -188,7 +224,8 @@ fn generate_identification_header() -> Vec<u8> {
     header
 }
 
-fn generate_comment_header() -> Vec<u8> {
+fn generate_comment_header(start_time: u64) -> Vec<u8> {
+    let start_time_str = format!("START_TIME={}", start_time);
     let vendor = b"Rust Ogg Writer";
     let mut header = Vec::new();
     header.extend_from_slice(b"OpusTags"); // Magic signature
@@ -196,6 +233,8 @@ fn generate_comment_header() -> Vec<u8> {
     header.extend_from_slice(vendor); // Vendor string
     header.extend_from_slice(&[0, 0, 0, 0]); // User comments length (0 comments)
     header.extend_from_slice("Duration: 10".as_bytes());
+    header.extend_from_slice(&(start_time_str.len() as u32).to_le_bytes()); // Длина комментария
+    header.extend_from_slice(start_time_str.as_bytes());
     header
 }
 
@@ -211,8 +250,10 @@ fn headers_to_map(headers: &BorrowedHeaders) -> HashMap<&str, Option<&[u8]>> {
 }
 
 fn get_mini_store(bucket_name: &str) -> Result<Arc<dyn ObjectStore>, String> {
-    let minio_access_key_id = "Nw7N0DMb0fo7OpfJDYxE";
-    let minio_secret_access_key = "wQ9rV5ZWaL7ooccjaGYAGqcLUNjWbm5dg0Tr7z7X";
+    let minio_access_key_id = std::env::var("MINIO_ACCESS_KEY_ID").expect("MINIO_ACCESS_KEY_ID env var must be defined");
+    // "Nw7N0DMb0fo7OpfJDYxE";
+    let minio_secret_access_key = std::env::var("MINIO_SECRET_ACCESS_KEY").expect("MINIO_SECRET_ACCESS_KEY env var must be defined");
+    // "wQ9rV5ZWaL7ooccjaGYAGqcLUNjWbm5dg0Tr7z7X";
     let minio_endpoint = "http://127.0.0.1:9000";
 
     let minio = AmazonS3Builder::new()
@@ -227,3 +268,11 @@ fn get_mini_store(bucket_name: &str) -> Result<Arc<dyn ObjectStore>, String> {
 
     Ok(Arc::new(minio))
 }
+
+fn get_current_time() -> u64 {
+    let time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("cannot get timestamp")
+        .as_millis() as u64;
+    time
+}   
