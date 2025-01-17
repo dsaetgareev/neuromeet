@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{collections::HashMap, str::FromStr, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use rdkafka::{admin::{AdminClient, AdminOptions, NewTopic, TopicReplication}, client::DefaultClientContext, error::KafkaError, message::{Header, OwnedHeaders}, producer::{FutureProducer, FutureRecord}, types::RDKafkaErrorCode, util::Timeout, ClientConfig};
 use tracing::{error, info};
@@ -89,16 +89,21 @@ impl KafkaClient {
         }
     }
 
-    pub async fn send_system_event(&self, system_event: SystemEvent, topic_name: &str, key: &String) -> Result<(), ()> {
+    pub async fn send_system_event(&self, system_event: SystemEvent, topic_name: &str, key: &String, additional_info: Option<HashMap<String, String>>) -> Result<(), ()> {
         if let Ok(producer) = &self.system_producer {
             let time = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("cannot get timestamp")
                 .as_millis() as u64;
-            let headers = OwnedHeaders::new()
+            let mut headers = OwnedHeaders::new()
                 .insert(Header { key: "key", value: Some(key) })
                 .insert(Header { key: "topic_name", value: Some(topic_name) })
                 .insert(Header { key: "timestamp", value: Some(&time.to_string()) });
+            if let Some(additional_info) = additional_info {
+                for (key, value) in additional_info.iter() {
+                    headers = headers.insert(Header { key, value: Some(value) });                
+                }
+            }
             let message = system_event.to_string().as_bytes().to_vec();
             let record: FutureRecord<'_, String, Vec<u8>> = FutureRecord::to(SYSTEM_TOPIC_NAME)
                 .key(key)
@@ -110,9 +115,9 @@ impl KafkaClient {
     }
 
     pub async fn create_system_event(&self, topic_name: &str, key: &String) -> Result<(), ()> {
-        self.send_system_event(SystemEvent::Create, topic_name, key).await
+        self.send_system_event(SystemEvent::Create, topic_name, key, None).await
     }
     pub async fn leave_system_event(&self, topic_name: &str, key: &String) -> Result<(), ()> {  
-        self.send_system_event(SystemEvent::Leave, topic_name, key).await
+        self.send_system_event(SystemEvent::Leave, topic_name, key, None).await
     }
 }

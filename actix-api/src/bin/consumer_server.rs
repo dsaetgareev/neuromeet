@@ -67,11 +67,10 @@ async fn main() -> Result<(), ()> {
                                 let group_id = String::from(group_id); 
                                 let create_time = String::from(create_time); 
 
-                                let time = get_current_time();
-                                let duration = Arc::new(RwLock::new(time));
-                                let timestamp = Arc::new(RwLock::new(0));
+                                let origin_duration = Arc::new(RwLock::new(0));
+                                let duration = Arc::new(RwLock::new(0));
                                 let serial = rand::thread_rng().gen();
-                                let file_name = format!("{}/{}.{}.ogg", topic_name, group_id, time);
+                                let file_name = format!("{}/{}.{}.ogg", topic_name, group_id, create_time);
 
                                 let bucket_name = "test";
                                 let object_store = get_mini_store(bucket_name)
@@ -83,16 +82,6 @@ async fn main() -> Result<(), ()> {
                                 let write = WriteMultipart::new(upload);
                                 let mut multipart_writer = S3Writer::new(write, 128);
                                 let mut ogg_writer = ogg::writing::PacketWriter::new(&mut multipart_writer);
-                                let _ = ogg_writer.write_packet(
-                                    generate_identification_header(),
-                                    serial,
-                                    ogg::PacketWriteEndInfo::EndPage,
-                                    time);
-                                let _ = ogg_writer.write_packet(
-                                    generate_comment_header(time),
-                                    serial,
-                                    ogg::PacketWriteEndInfo::EndPage,
-                                    time);    
                                 let mut builder = KafkaConsumer::new();
                                 let consumer = builder.create_consumer(&topic_name, &group_id).await;
                                 if let Ok(common_consumer) = consumer {
@@ -107,7 +96,7 @@ async fn main() -> Result<(), ()> {
                                                             payload.to_vec(),
                                                             &mut ogg_writer,
                                                             duration.clone(),
-                                                            timestamp.clone(),
+                                                            origin_duration.clone(),
                                                             serial
                                                         );
                                                     } else {
@@ -121,6 +110,7 @@ async fn main() -> Result<(), ()> {
                                             }
                                         }
                                     }
+                                    println!("end duration {}", *duration.read().unwrap());
                                     let _ = ogg_writer.write_packet(
                                         Vec::new(),
                                         serial,
@@ -129,8 +119,10 @@ async fn main() -> Result<(), ()> {
                                     multipart_writer.finish().await.unwrap();
                                     let producer = KafkaClient::new();
                                     info!("leaved {}", group_id);
+                                    let mut additional_info = HashMap::new();
+                                    additional_info.insert("end_duration".to_string(), origin_duration.read().unwrap().to_string());
                                     producer
-                                        .send_system_event(SystemEvent::Leave, &topic_name, &group_id)
+                                        .send_system_event(SystemEvent::Leave, &topic_name, &group_id, Some(additional_info))
                                         .await
                                         .expect("cannot send SystemEvent::Leave");
                                 }
@@ -152,7 +144,7 @@ fn emit_packet(
     bytes: Vec<u8>,
         ogg_writer: &mut ogg::writing::PacketWriter<&mut S3Writer>, 
         duration: Arc<RwLock<u64>>,
-        timestamp: Arc<RwLock<u64>>,
+        origin_duration: Arc<RwLock<u64>>,
         serial: u32,
     ) {
     match PacketWrapper::parse_from_bytes(&bytes) {
@@ -163,16 +155,32 @@ fn emit_packet(
             if media_type == MediaType::AUDIO {
                 let packet_timestamp = packet.timestamp as u64;
                 let mut write_duration = duration.write().expect("cannot get a duration");
+                let mut write_origin_duration = origin_duration.write().expect("cannot get a duration");
                 
-                let mut write_timestamp = timestamp.write().expect("cannot get a duration");
-                if *write_timestamp == 0 {
-                    *write_timestamp = packet_timestamp;
+
+                if *write_origin_duration == 0 {
+                    *write_origin_duration = packet_timestamp;
+                    println!("start_time {}", packet_timestamp);
+                    let absgp = write_duration.clone();
+                    let _ = ogg_writer.write_packet(
+                        generate_identification_header(),
+                        serial,
+                        ogg::PacketWriteEndInfo::EndPage,
+                        absgp);
+                    let _ = ogg_writer.write_packet(
+                        generate_comment_header(packet_timestamp),
+                        serial,
+                        ogg::PacketWriteEndInfo::EndPage,
+                        absgp);    
                 } else {
-                    let diff = packet_timestamp - *write_timestamp;
-                    let ostatoc = (diff / 20000) as i32;
-                    if ostatoc > 1 {
-                        info!("tishina {}, {}", ostatoc, diff);
-                        for _i in 0..ostatoc {
+                    let diff = packet_timestamp - *write_origin_duration;
+                    let amount = diff as f64 / 20.0;
+                    if amount as i64 > 1 {
+                        info!("tishina {}, {}", amount, diff);
+                        let whole_part = amount.trunc();
+                        let remainder = amount - whole_part;
+                        println!("remainder {}", remainder);
+                        for _i in 0..whole_part as i64 {
                             *write_duration += 960;
                             let absgp = write_duration.clone();
                             if let Err(err) = ogg_writer.write_packet(
@@ -184,10 +192,20 @@ fn emit_packet(
                                 tracing::error!("{}", err);
                             } 
                         }
+                        *write_duration += (remainder * 960.0) as u64;
+                        let absgp = write_duration.clone();
+                        if let Err(err) = ogg_writer.write_packet(
+                            Cow::Borrowed(SILENCE_PACKET),
+                            serial,
+                            ogg::PacketWriteEndInfo::EndPage,
+                            absgp
+                        ) {
+                            tracing::error!("{}", err);
+                        } 
                     }
-                    *write_timestamp = packet_timestamp;
                 }
 
+                *write_origin_duration = packet_timestamp; 
                 let data = packet.data;
                 *write_duration += 960;
                 let absgp = write_duration.clone();
@@ -231,9 +249,8 @@ fn generate_comment_header(start_time: u64) -> Vec<u8> {
     header.extend_from_slice(b"OpusTags"); // Magic signature
     header.extend_from_slice(&(vendor.len() as u32).to_le_bytes()); // Vendor length
     header.extend_from_slice(vendor); // Vendor string
-    header.extend_from_slice(&[0, 0, 0, 0]); // User comments length (0 comments)
-    header.extend_from_slice("Duration: 10".as_bytes());
-    header.extend_from_slice(&(start_time_str.len() as u32).to_le_bytes()); // Длина комментария
+    header.extend_from_slice(&1u32.to_le_bytes()); // 1 комментарий
+    header.extend_from_slice(&(start_time_str.len() as u32).to_le_bytes());
     header.extend_from_slice(start_time_str.as_bytes());
     header
 }
@@ -251,9 +268,7 @@ fn headers_to_map(headers: &BorrowedHeaders) -> HashMap<&str, Option<&[u8]>> {
 
 fn get_mini_store(bucket_name: &str) -> Result<Arc<dyn ObjectStore>, String> {
     let minio_access_key_id = std::env::var("MINIO_ACCESS_KEY_ID").expect("MINIO_ACCESS_KEY_ID env var must be defined");
-    // "Nw7N0DMb0fo7OpfJDYxE";
     let minio_secret_access_key = std::env::var("MINIO_SECRET_ACCESS_KEY").expect("MINIO_SECRET_ACCESS_KEY env var must be defined");
-    // "wQ9rV5ZWaL7ooccjaGYAGqcLUNjWbm5dg0Tr7z7X";
     let minio_endpoint = "http://127.0.0.1:9000";
 
     let minio = AmazonS3Builder::new()
@@ -269,7 +284,7 @@ fn get_mini_store(bucket_name: &str) -> Result<Arc<dyn ObjectStore>, String> {
     Ok(Arc::new(minio))
 }
 
-fn get_current_time() -> u64 {
+fn _get_current_time() -> u64 {
     let time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("cannot get timestamp")

@@ -1,10 +1,11 @@
-use std::{collections::HashMap, fs::File, io::{Read, Write}, path::PathBuf, process::Command, str::FromStr, sync::Arc};
+use std::{collections::HashMap, fs::File, io::{BufReader, Cursor, Read, Write}, path::PathBuf, process::Command, str::FromStr, sync::Arc};
 
 use futures::StreamExt;
 use object_store::{aws::AmazonS3Builder, path::Path, ObjectStore};
+use ogg::PacketReader;
 use rdkafka::{message::{BorrowedHeaders, Headers}, Message};
 use sec_api::kafka::{kafka_consumer::KafkaConsumer, SystemEvent};
-use tracing::error;
+use tracing::{error, info};
 use dotenv::dotenv;
 
 
@@ -117,6 +118,14 @@ async fn main() -> Result<(), ()> {
                                     if room.unit_count == 0 {
                                         println!("allreade for job");
 
+                                        let end_duration = headers.get("end_duration")
+                                            .expect("cannot get end_duration")
+                                            .expect("cannot get end_duration");
+                                        let end_duration = std::str::from_utf8(end_duration)
+                                            .expect("cannot parse end_duration from &[u8]")
+                                            .parse::<u64>()
+                                            .expect("cannot parse end_duration from &[u8]");
+
                                         let mut temp_files = Vec::new();
                                         let mut timestamps = Vec::new();
 
@@ -134,27 +143,29 @@ async fn main() -> Result<(), ()> {
                                                     println!("Size: {} bytes", object_meta.size);
                                                     println!("Last modified: {:?}", object_meta.last_modified);
 
-                                                    let file_name = object_meta.location.to_string();
-                                                    let mut split_name = file_name.split(".");
-                                                    let split_count = split_name.clone().count();
-                                                    let timestamp = split_name
-                                                        .nth(split_count - 2)
-                                                        .unwrap()
-                                                        .parse::<u64>()
-                                                        .ok()
-                                                        .unwrap();
-
-                                                    timestamps.push(timestamp);
-
                                                     let path = Path::from(object_meta.location);
                                                     let object = object_store.get(&path).await.unwrap();
                                                     let bytes = object.bytes().await.unwrap();
 
+                                                    let mut reader = PacketReader::new(Cursor::new(&bytes));
+                                                    let mut timestamp = 0;
+                                                    while let Ok(packet) = reader.read_packet() {
+                                                        if let Some(packet)  = packet {
+                                                            if packet.data.starts_with(b"OpusTags") {
+                                                                timestamp = extract_timestamp_from_ogg_header(&packet.data).unwrap();
+                                                                break;
+                                                            }
+
+                                                        }
+                                                    }
 
                                                     let temp_file = PathBuf::from(format!("{}.ogg", timestamp));
                                                     let mut file = File::create(&temp_file).expect("Не удалось создать временный файл");
                                                     file.write_all(&bytes).expect("Не удалось записать данные в файл");
 
+                                                    println!("atimestamp {}", timestamp);
+
+                                                    timestamps.push(timestamp);
                                                     temp_files.push((temp_file, timestamp));
 
                                                 }
@@ -165,16 +176,14 @@ async fn main() -> Result<(), ()> {
                                         let min_timestamp = timestamps.iter().min().expect("Нет файлов для обработки");
 
                                         let mut ffmpeg_command = Command::new("ffmpeg");
-                                        ffmpeg_command.arg("arg-fflags +genpts+igndts");
 
                                         let mut filter_graph = String::new();
                                         let mut filter_graph_suffix = String::new();
                                                                         
                                         for (i, (temp_file, timestamp)) in temp_files.iter().enumerate() {
-                                            let mut delay = timestamp - min_timestamp;
-                                            if delay > 3900 {
-                                                delay = delay - 3900;
-                                            }
+                                            println!("min timestamp {}", min_timestamp);
+                                            println!("timestamp {}", timestamp);
+                                            let delay = timestamp - min_timestamp;
                                             filter_graph.push_str(&format!("[{}:a]adelay={}ms[delayed{}];", i, delay, i + 1));
                                             filter_graph_suffix.push_str(&format!("[delayed{}]", i + 1));
                                             ffmpeg_command
@@ -183,9 +192,14 @@ async fn main() -> Result<(), ()> {
                                         }
 
                                         filter_graph.push_str(&filter_graph_suffix);
-                                    
+
                                         filter_graph
-                                            .push_str(&format!("amix=inputs={}:duration=longest", temp_files.len()));
+                                            .push_str(&format!("amix=inputs={}", temp_files.len()));
+
+                                        let diff_duration = (end_duration - min_timestamp) / 1000;
+                                        ffmpeg_command
+                                            .arg("-to")
+                                            .arg(diff_duration.to_string());
 
                                         println!("{}", filter_graph);
                                     
@@ -288,4 +302,42 @@ fn get_mini_store(bucket_name: &str) -> Result<Arc<dyn ObjectStore>, String> {
     .map_err(|e| format!("Error creating MinIO client: {}", e))?;
 
     Ok(Arc::new(minio))
+}
+
+fn extract_timestamp_from_ogg_header(header: &[u8]) -> Option<u64> {
+    if !header.starts_with(b"OpusTags") {
+        return None;
+    }
+
+    let mut offset = 8; // Пропускаем "OpusTags" (8 байт)
+
+    // Читаем длину vendor string (4 байта)
+    let vendor_len = u32::from_le_bytes(header[offset..offset + 4].try_into().ok()?) as usize;
+    offset += 4;
+
+    // Пропускаем vendor string
+    offset += vendor_len;
+
+    // Читаем количество комментариев (4 байта)
+    let comments_count = u32::from_le_bytes(header[offset..offset + 4].try_into().ok()?);
+    offset += 4;
+
+    // Ищем комментарий с START_TIME
+    for i in 0..comments_count {
+        // Читаем длину комментария (4 байта)
+        let comment_len = u32::from_le_bytes(header[offset..offset + 4].try_into().ok()?) as usize;
+        offset += 4;
+
+        // Читаем сам комментарий
+        let comment = &header[offset..offset + comment_len];
+        offset += comment_len;
+
+        // Пытаемся найти START_TIME
+        if let Some(start_time_str) = std::str::from_utf8(comment).ok() {
+            if let Some(start_time) = start_time_str.strip_prefix("START_TIME=") {
+                return start_time.parse::<u64>().ok();
+            }
+        }
+    }
+    None
 }
