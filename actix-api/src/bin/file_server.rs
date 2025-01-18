@@ -143,6 +143,15 @@ async fn main() -> Result<(), ()> {
                                                     println!("Size: {} bytes", object_meta.size);
                                                     println!("Last modified: {:?}", object_meta.last_modified);
 
+                                                    let is_common_file =  object_meta
+                                                        .location
+                                                        .filename()
+                                                        .unwrap()
+                                                        .starts_with("common");
+                                                    if is_common_file {
+                                                        continue;
+                                                    }
+
                                                     let path = Path::from(object_meta.location);
                                                     let object = object_store.get(&path).await.unwrap();
                                                     let bytes = object.bytes().await.unwrap();
@@ -157,6 +166,10 @@ async fn main() -> Result<(), ()> {
                                                             }
 
                                                         }
+                                                    }
+
+                                                    if timestamp > end_duration {
+                                                        continue;
                                                     }
 
                                                     let temp_file = PathBuf::from(format!("{}.ogg", timestamp));
@@ -196,14 +209,14 @@ async fn main() -> Result<(), ()> {
                                         filter_graph
                                             .push_str(&format!("amix=inputs={}", temp_files.len()));
 
-                                        let diff_duration = (end_duration - min_timestamp) / 1000;
+                                        let diff_duration = (end_duration - min_timestamp) / 1000 + 2;
                                         ffmpeg_command
                                             .arg("-to")
                                             .arg(diff_duration.to_string());
 
                                         println!("{}", filter_graph);
                                     
-                                        let output_file = format!("{}.ogg", topic_name);
+                                        let output_file = format!("common_{}_{}_{}.ogg", topic_name, min_timestamp, end_duration);
                                         ffmpeg_command
                                             .arg("-filter_complex")
                                             .arg(filter_graph)
@@ -214,7 +227,7 @@ async fn main() -> Result<(), ()> {
 
                                         if output.status.success() {
                                             println!("Аудио успешно наложено и сохранено.");
-                                            let output_path = Path::from(format!("{}/{}.ogg", topic_name, topic_name));
+                                            let output_path = Path::from(format!("{}/{}.ogg", &topic_name, &output_file));
                                             let mut file = File::open(&output_file).expect("Не удалось открыть временный файл");
 
                                             let mut multipart_upload = object_store
@@ -259,6 +272,8 @@ async fn main() -> Result<(), ()> {
                                             std::fs::remove_file(temp_file).expect("Не удалось удалить временный файл");
                                         }
                                         std::fs::remove_file(output_file).expect("Не удалось удалить временный выходной файл");
+
+                                        rooms.remove(&topic_name);
                                     }
                                 }
                             },

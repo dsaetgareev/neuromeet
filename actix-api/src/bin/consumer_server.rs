@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, str::FromStr, sync::{Arc, RwLock}, time::{SystemTime, UNIX_EPOCH}};
+use std::{borrow::Cow, collections::{BTreeMap, HashMap}, str::FromStr, sync::{Arc, RwLock}, time::{SystemTime, UNIX_EPOCH}};
 
 use object_store::{aws::AmazonS3Builder, path::Path, ObjectStore, WriteMultipart};
 use protobuf::Message as _;
@@ -7,7 +7,7 @@ use rdkafka::{message::{BorrowedHeaders, Headers}, Message};
 use sec_api::{kafka::{kafka_consumer::KafkaConsumer, kafka_rdclient::KafkaClient, SystemEvent}, s3::s3_writer::S3Writer};
 use tokio_stream::StreamExt;
 use tracing::info;
-use types::protos::{media_packet::{media_packet::MediaType, MediaPacket}, packet_wrapper::PacketWrapper};
+use types::protos::{media_packet::{self, media_packet::MediaType, MediaPacket}, packet_wrapper::PacketWrapper};
 use dotenv::dotenv;
 
 const SYSTEM_TOPIC_NAME: &str = "system_events";
@@ -69,6 +69,8 @@ async fn main() -> Result<(), ()> {
 
                                 let origin_duration = Arc::new(RwLock::new(0));
                                 let duration = Arc::new(RwLock::new(0));
+                                let sequence = Arc::new(RwLock::new(0));
+                                let mut cache: BTreeMap<u64, MediaPacket> = BTreeMap::new();
                                 let serial = rand::thread_rng().gen();
                                 let file_name = format!("{}/{}.{}.ogg", topic_name, group_id, create_time);
 
@@ -92,13 +94,79 @@ async fn main() -> Result<(), ()> {
                                                     .expect("cannot get a user_key");
                                                 if group_id.eq(user_key) {
                                                     if let Some(payload) = msg.payload() {
-                                                        emit_packet(
-                                                            payload.to_vec(),
-                                                            &mut ogg_writer,
-                                                            duration.clone(),
-                                                            origin_duration.clone(),
-                                                            serial
-                                                        );
+                                                        match PacketWrapper::parse_from_bytes(&payload.to_vec()) {
+                                                            Ok(packet_wrapper) => {
+                                                                let packet: MediaPacket  = parse_media_packet(&packet_wrapper.data)
+                                                                    .expect("cannot get MediaPacket");
+                                                                let media_type = packet.media_type.enum_value().unwrap();
+                                                                if media_type == MediaType::AUDIO {
+                                                                    let current_sequence = packet.video_metadata.sequence;
+                                                                    let mut write_sequence = sequence.write().unwrap();
+                                                                    if current_sequence < *write_sequence {
+                                                                        info!("curren sequence < write sequence {} < {}", current_sequence, *write_sequence);
+                                                                    }
+                                                                    if *write_sequence + 1 == current_sequence {
+                                                                        *write_sequence = current_sequence;
+                                                                        emit_packet(
+                                                                            packet,
+                                                                            &mut ogg_writer,
+                                                                            duration.clone(),
+                                                                            origin_duration.clone(),
+                                                                            serial
+                                                                        );
+
+                                                                        let sorted_frames = cache.keys().copied().collect::<Vec<_>>();
+                                                                        for iter_sequence in sorted_frames {
+                                                                            info!("from chache {}", iter_sequence);
+                                                                            let next_sequence = *write_sequence + 1;
+                                                                            match iter_sequence.cmp(&next_sequence) {
+                                                                                std::cmp::Ordering::Less => {
+                                                                                    info!("proccessed sequence {}", next_sequence);
+                                                                                    let frame = cache.remove(&next_sequence);
+                                                                                    if let Some(frame) = frame {
+                                                                                        emit_packet(
+                                                                                            frame,
+                                                                                            &mut ogg_writer,
+                                                                                            duration.clone(),
+                                                                                            origin_duration.clone(),
+                                                                                            serial
+                                                                                        );                                                                                          
+                                                                                    }
+                                                                                },
+                                                                                std::cmp::Ordering::Equal => {
+                                                                                    info!("proccessed sequence {}", next_sequence);
+                                                                                    let frame = cache.remove(&next_sequence);
+                                                                                    if let Some(frame) = frame {
+                                                                                        emit_packet(
+                                                                                            frame,
+                                                                                            &mut ogg_writer,
+                                                                                            duration.clone(),
+                                                                                            origin_duration.clone(),
+                                                                                            serial
+                                                                                        );                                                                                          
+                                                                                        *write_sequence = next_sequence;
+
+                                                                                    }
+                                                                                },
+                                                                                std::cmp::Ordering::Greater => {
+                                                                                    break;
+                                                                                },
+                                                                            }
+
+                                                                        }
+                                                                    } else {
+                                                                        info!("current sequence {}, write sequence {}", current_sequence, *write_sequence);
+                                                                        cache.insert(current_sequence, packet);
+                                                                    }
+                                                                    
+
+                                                                    
+                                                                }
+                                                            },
+                                                            Err(_err) => {
+                                                                tracing::error!("failed to parse media packet");
+                                                            },
+                                                        };
                                                     } else {
                                                         break;
                                                     }
@@ -110,7 +178,8 @@ async fn main() -> Result<(), ()> {
                                             }
                                         }
                                     }
-                                    println!("end duration {}", *duration.read().unwrap());
+                                    info!("end duration {}", *duration.read().unwrap());
+                                    info!("cache len {}", cache.len());
                                     let _ = ogg_writer.write_packet(
                                         Vec::new(),
                                         serial,
@@ -141,87 +210,80 @@ async fn main() -> Result<(), ()> {
 }
 
 fn emit_packet(
-    bytes: Vec<u8>,
-        ogg_writer: &mut ogg::writing::PacketWriter<&mut S3Writer>, 
-        duration: Arc<RwLock<u64>>,
-        origin_duration: Arc<RwLock<u64>>,
-        serial: u32,
-    ) {
-    match PacketWrapper::parse_from_bytes(&bytes) {
-        Ok(media_packet) => {
-            let packet: MediaPacket  = parse_media_packet(&media_packet.data)
-                .expect("cannot get MediaPacket");
-            let media_type = packet.media_type.enum_value().unwrap();
-            if media_type == MediaType::AUDIO {
-                let packet_timestamp = packet.timestamp as u64;
-                let mut write_duration = duration.write().expect("cannot get a duration");
-                let mut write_origin_duration = origin_duration.write().expect("cannot get a duration");
-                
+    packet: MediaPacket,
+    ogg_writer: &mut ogg::writing::PacketWriter<&mut S3Writer>, 
+    duration: Arc<RwLock<u64>>,
+    origin_duration: Arc<RwLock<u64>>,
+    serial: u32,
+) {
+    
+    let packet_timestamp = packet.timestamp as u64;
+    let mut write_duration = duration.write().expect("cannot get a duration");
+    let mut write_origin_duration = origin_duration.write().expect("cannot get a duration");
 
-                if *write_origin_duration == 0 {
-                    *write_origin_duration = packet_timestamp;
-                    println!("start_time {}", packet_timestamp);
-                    let absgp = write_duration.clone();
-                    let _ = ogg_writer.write_packet(
-                        generate_identification_header(),
-                        serial,
-                        ogg::PacketWriteEndInfo::EndPage,
-                        absgp);
-                    let _ = ogg_writer.write_packet(
-                        generate_comment_header(packet_timestamp),
-                        serial,
-                        ogg::PacketWriteEndInfo::EndPage,
-                        absgp);    
-                } else {
-                    let diff = packet_timestamp - *write_origin_duration;
-                    let amount = diff as f64 / 20.0;
-                    if amount as i64 > 1 {
-                        info!("tishina {}, {}", amount, diff);
-                        let whole_part = amount.trunc();
-                        let remainder = amount - whole_part;
-                        println!("remainder {}", remainder);
-                        for _i in 0..whole_part as i64 {
-                            *write_duration += 960;
-                            let absgp = write_duration.clone();
-                            if let Err(err) = ogg_writer.write_packet(
-                                Cow::Borrowed(SILENCE_PACKET),
-                                serial,
-                                ogg::PacketWriteEndInfo::EndPage,
-                                absgp
-                            ) {
-                                tracing::error!("{}", err);
-                            } 
-                        }
-                        *write_duration += (remainder * 960.0) as u64;
-                        let absgp = write_duration.clone();
-                        if let Err(err) = ogg_writer.write_packet(
-                            Cow::Borrowed(SILENCE_PACKET),
-                            serial,
-                            ogg::PacketWriteEndInfo::EndPage,
-                            absgp
-                        ) {
-                            tracing::error!("{}", err);
-                        } 
-                    }
-                }
-
-                *write_origin_duration = packet_timestamp; 
-                let data = packet.data;
+    if *write_origin_duration == 0 {
+        *write_origin_duration = packet_timestamp;
+        info!("start_time {}", packet_timestamp);
+        let absgp = write_duration.clone();
+        let _ = ogg_writer.write_packet(
+            generate_identification_header(),
+            serial,
+            ogg::PacketWriteEndInfo::EndPage,
+            absgp);
+        let _ = ogg_writer.write_packet(
+            generate_comment_header(packet_timestamp),
+            serial,
+            ogg::PacketWriteEndInfo::EndPage,
+            absgp);    
+    } else {
+        if packet_timestamp < *write_origin_duration {
+            info!("shpion");
+            return;
+        }
+        let diff = packet_timestamp - *write_origin_duration;
+        let amount = diff as f64 / 20.0;
+        if amount as i64 > 1 {
+            info!("packet_timestam {}", packet_timestamp);
+            info!("original duration {}", *write_origin_duration);
+            info!("tishina {}, {}", amount, diff);
+            let whole_part = amount.trunc();
+            let remainder = amount - whole_part;
+            println!("remainder {}", remainder);
+            for _i in 0..whole_part as i64 {
                 *write_duration += 960;
                 let absgp = write_duration.clone();
                 if let Err(err) = ogg_writer.write_packet(
-                    Cow::Owned(data),
+                    Cow::Borrowed(SILENCE_PACKET),
                     serial,
                     ogg::PacketWriteEndInfo::EndPage,
                     absgp
                 ) {
-                    tracing::error!("{}", err)
-                }
+                    tracing::error!("{}", err);
+                } 
             }
-
-        },
-        Err(_err) => {
-            tracing::error!("failed to parse media packet");
+            *write_duration += (remainder * 960.0) as u64;
+            let absgp = write_duration.clone();
+            if let Err(err) = ogg_writer.write_packet(
+                Cow::Borrowed(SILENCE_PACKET),
+                serial,
+                ogg::PacketWriteEndInfo::EndPage,
+                absgp
+            ) {
+                tracing::error!("{}", err);
+            } 
+        }
+    
+        *write_origin_duration = packet_timestamp; 
+        let data = packet.data;
+        *write_duration += 960;
+        let absgp = write_duration.clone();
+        if let Err(err) = ogg_writer.write_packet(
+            Cow::Owned(data),
+            serial,
+            ogg::PacketWriteEndInfo::EndPage,
+            absgp
+        ) {
+            tracing::error!("{}", err)
         }
     }
 }
