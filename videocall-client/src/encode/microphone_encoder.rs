@@ -39,12 +39,17 @@ impl MicrophoneEncoder {
         self.readable_stream = Some(readable_stream);
     }
 
-    pub fn set_enabled(&mut self, value: bool) -> bool {
-        self.state.set_enabled(value)
+    pub fn set_enabled(&mut self, value: bool) {
+        if let Some(meida_track) = &self.media_track {
+            meida_track.set_enabled(value);
+        }
     }
 
     pub fn get_enabled(&self) -> bool {
-        self.state.is_enabled()
+        if let Some(meida_track) = &self.media_track {
+            return meida_track.enabled();
+        }
+        true
     }
 
     pub fn select(&mut self, device: String) -> bool {
@@ -62,10 +67,16 @@ impl MicrophoneEncoder {
         }
     }
 
-    pub fn switch_enabled(&mut self) -> bool {
-        let is_enabled = self.get_enabled();
-        self.set_enabled(!is_enabled); 
-        is_enabled
+    pub fn mute(&self) {
+        if let Some(meida_track) = &self.media_track {
+            meida_track.set_enabled(false);
+        }
+    }
+
+    pub fn unmute(&self) {
+        if let Some(meida_track) = &self.media_track {
+            meida_track.set_enabled(true);
+        }
     }
 
     pub fn start(&mut self, sender: Box<dyn Sender>) {
@@ -108,8 +119,8 @@ impl MicrophoneEncoder {
 
             let audio_processor = MediaStreamTrackProcessor::new(&media_stream_processor_init).unwrap();
             let audio_readable = audio_processor.readable();
-            let media_track = &audio_track.clone().unchecked_into::<MediaStreamTrack>();
-            sender.send_readable(ReadableType::Audio, audio_readable, media_track.clone());
+            let media_track = audio_track.unchecked_into::<MediaStreamTrack>();
+            sender.send_readable(ReadableType::Audio, audio_readable, media_track);
         });
     }
 

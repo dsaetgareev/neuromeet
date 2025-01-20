@@ -129,7 +129,7 @@ pub enum MediaMsg {
     // divices
     AudioDeviceChanged(String),
     EnableMicrophone(bool),
-    SwitchMic(bool),
+    OnMute(bool),
     VideoDeviceChanged(String),
     EnableVideo(bool),
     SwitchVedeo(bool),
@@ -212,14 +212,11 @@ impl Reducer<MediaStore> for MediaMsg {
                     }
                 }            
             },
-            MediaMsg::SwitchMic(_) => {
-                if state.get_mut_mic().switch_enabled() {
-                    state.get_mut_mic().stop();
-                    state.get_agent().stop_encoder(ReadableType::Audio);
+            MediaMsg::OnMute(is_mute) => {
+                if !is_mute {
+                    state.get_mut_mic().mute();
                 } else {
-                    let agent = state.get_agent();
-                    let agent = agent.clone();
-                    state.get_mut_mic().start(Box::new(agent));
+                    state.get_mut_mic().unmute();
                 }
             },
             MediaMsg::VideoDeviceChanged(video) => {

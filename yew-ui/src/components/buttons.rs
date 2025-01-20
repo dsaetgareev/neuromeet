@@ -25,8 +25,9 @@ pub fn video_button() -> Html {
         let media_dispatch = media_dispatch.clone();
         let mic_enabled = mic_enabled.clone();
         Callback::from(move |_event| {
-            mic_enabled.set(!*mic_enabled);
-            media_dispatch.apply(MediaMsg::SwitchMic(false));
+            let enabled = !*mic_enabled;
+            mic_enabled.set(enabled);
+            media_dispatch.apply(MediaMsg::OnMute(enabled));
         })
     };
 

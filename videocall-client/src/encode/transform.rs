@@ -1,9 +1,7 @@
 use super::super::wrappers::{EncodedAudioChunkTypeWrapper, EncodedVideoChunkTypeWrapper};
 use crate::crypto::aes::Aes128State;
 use js_sys::{Date, Uint8Array};
-use log::info;
 use protobuf::Message;
-use wasm_bindgen::JsValue;
 use std::rc::Rc;
 use types::protos::{
     media_packet::{media_packet::MediaType, MediaPacket, VideoMetadata},
@@ -88,7 +86,7 @@ pub fn transform_audio_chunk(
     aes: Rc<Aes128State>,
 ) -> PacketWrapper {
     let timestamp = Date::now();
-    web_sys::console::log_1(&JsValue::from_f64(timestamp));
+    // web_sys::console::log_1(&JsValue::from_f64(timestamp));
     let byte_length = chunk.byte_length() as usize;
     let js_buffer = Uint8Array::new_with_length(byte_length as u32);
     let _ = chunk.copy_to_with_u8_array(&js_buffer);
