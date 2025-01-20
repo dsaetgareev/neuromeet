@@ -101,66 +101,17 @@ async fn main() -> Result<(), ()> {
                                                                 let media_type = packet.media_type.enum_value().unwrap();
                                                                 if media_type == MediaType::AUDIO {
                                                                     let current_sequence = packet.video_metadata.sequence;
-                                                                    let mut write_sequence = sequence.write().unwrap();
+                                                                    let write_sequence = sequence.write().unwrap();
                                                                     if current_sequence < *write_sequence {
                                                                         info!("curren sequence < write sequence {} < {}", current_sequence, *write_sequence);
                                                                     }
-                                                                    if *write_sequence + 1 == current_sequence {
-                                                                        *write_sequence = current_sequence;
-                                                                        emit_packet(
-                                                                            packet,
-                                                                            &mut ogg_writer,
-                                                                            duration.clone(),
-                                                                            origin_duration.clone(),
-                                                                            serial
-                                                                        );
-
-                                                                        let sorted_frames = cache.keys().copied().collect::<Vec<_>>();
-                                                                        for iter_sequence in sorted_frames {
-                                                                            info!("from chache {}", iter_sequence);
-                                                                            let next_sequence = *write_sequence + 1;
-                                                                            match iter_sequence.cmp(&next_sequence) {
-                                                                                std::cmp::Ordering::Less => {
-                                                                                    info!("proccessed sequence {}", next_sequence);
-                                                                                    let frame = cache.remove(&next_sequence);
-                                                                                    if let Some(frame) = frame {
-                                                                                        emit_packet(
-                                                                                            frame,
-                                                                                            &mut ogg_writer,
-                                                                                            duration.clone(),
-                                                                                            origin_duration.clone(),
-                                                                                            serial
-                                                                                        );                                                                                          
-                                                                                    }
-                                                                                },
-                                                                                std::cmp::Ordering::Equal => {
-                                                                                    info!("proccessed sequence {}", next_sequence);
-                                                                                    let frame = cache.remove(&next_sequence);
-                                                                                    if let Some(frame) = frame {
-                                                                                        emit_packet(
-                                                                                            frame,
-                                                                                            &mut ogg_writer,
-                                                                                            duration.clone(),
-                                                                                            origin_duration.clone(),
-                                                                                            serial
-                                                                                        );                                                                                          
-                                                                                        *write_sequence = next_sequence;
-
-                                                                                    }
-                                                                                },
-                                                                                std::cmp::Ordering::Greater => {
-                                                                                    break;
-                                                                                },
-                                                                            }
-
-                                                                        }
-                                                                    } else {
-                                                                        info!("current sequence {}, write sequence {}", current_sequence, *write_sequence);
-                                                                        cache.insert(current_sequence, packet);
-                                                                    }
-                                                                    
-
-                                                                    
+                                                                    emit_packet(
+                                                                        packet,
+                                                                        &mut ogg_writer,
+                                                                        duration.clone(),
+                                                                        origin_duration.clone(),
+                                                                        serial
+                                                                    );
                                                                 }
                                                             },
                                                             Err(_err) => {
