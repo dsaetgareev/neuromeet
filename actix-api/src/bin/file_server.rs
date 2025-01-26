@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File, io::{BufReader, Cursor, Read, Write}, path::PathBuf, process::Command, str::FromStr, sync::Arc};
+use std::{collections::HashMap, fs::File, io::{Cursor, Read, Write}, path::PathBuf, process::Command, str::FromStr, sync::Arc};
 
 use futures::StreamExt;
 use object_store::{aws::AmazonS3Builder, path::Path, ObjectStore};
@@ -10,6 +10,7 @@ use dotenv::dotenv;
 
 
 const SYSTEM_TOPIC_NAME: &str = "system_events";
+const BUCKET_NAME: &str = "test";
 
 #[derive(Debug)]
 pub enum ConsumerError {
@@ -59,13 +60,13 @@ async fn main() -> Result<(), ()> {
     dotenv().ok();
 
     tracing_subscriber::fmt()
-    .with_max_level(tracing::Level::INFO)
-    .compact()
-    .with_file(true)
-    .with_line_number(true)
-    .with_thread_ids(true)
-    .with_target(false)
-    .init();
+        .with_max_level(tracing::Level::INFO)
+        .compact()
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_ids(true)
+        .with_target(false)
+        .init();
 
     let mut  system_consumer = KafkaConsumer::new();
 
@@ -79,19 +80,9 @@ async fn main() -> Result<(), ()> {
                         let payload_str = std::str::from_utf8(payload).unwrap();
                         let headers = msg.headers().expect("cannot get headers");
                         let headers = headers_to_map(headers);
-                        let group_id = headers.get("key")
-                            .expect("cannot get a key")
-                            .expect("cannot get a group_id");
-                        let group_id = std::str::from_utf8(group_id)
-                            .expect("cannot parse a group_id from &[u8]");
-                        let group_id = String::from(group_id);
-                        let topic_name = headers.get("topic_name")
-                            .expect("cannot get a topic_name")
-                            .expect("cannot get a topic_name");
-                        let topic_name = std::str::from_utf8(topic_name)
-                            .expect("cannot parse a topic_name from &[u8]");
-                        let topic_name = String::from(topic_name);
-                        println!("Получено сообщение: {}, {}", payload_str, group_id);
+                        let group_id = get_headers_value(&headers, "key");
+                        let topic_name = get_headers_value(&headers, "topic_name");
+                        info!("Получено сообщение: {}, {}", payload_str, group_id);
                         let system_event = SystemEvent::from_str(payload_str).expect("cannot parsing SystemEvent");
                         let room = rooms.get_mut(&topic_name);
 
@@ -111,7 +102,7 @@ async fn main() -> Result<(), ()> {
                             },
                             SystemEvent::Leave => {
                                 if let Some(room) = room {
-                                    println!("Участник {} leaved", group_id);
+                                    info!("Участник {} leaved", group_id);
                                     if let Err(err) = room.leave_unit(&group_id) {
                                         error!("Error leaved unit {}, err: {:?}", group_id, err);
                                     }
@@ -129,8 +120,7 @@ async fn main() -> Result<(), ()> {
                                         let mut temp_files = Vec::new();
                                         let mut timestamps = Vec::new();
 
-                                        let bucket_name = "test";
-                                        let object_store = get_mini_store(bucket_name)
+                                        let object_store = get_mini_store(BUCKET_NAME)
                                             .expect("cannot get a object sotre");
                                         let path = format!("{}/", topic_name);
                                         let directory_path = Path::from(path);
@@ -139,9 +129,9 @@ async fn main() -> Result<(), ()> {
                                         while let Some(file) = list_stream.next().await {
                                             match file {
                                                 Ok(object_meta) => {
-                                                    println!("File: {}", object_meta.location);
-                                                    println!("Size: {} bytes", object_meta.size);
-                                                    println!("Last modified: {:?}", object_meta.last_modified);
+                                                    info!("File: {}", object_meta.location);
+                                                    info!("Size: {} bytes", object_meta.size);
+                                                    info!("Last modified: {:?}", object_meta.last_modified);
 
                                                     let is_common_file =  object_meta
                                                         .location
@@ -176,58 +166,21 @@ async fn main() -> Result<(), ()> {
                                                     let mut file = File::create(&temp_file).expect("Не удалось создать временный файл");
                                                     file.write_all(&bytes).expect("Не удалось записать данные в файл");
 
-                                                    println!("atimestamp {}", timestamp);
-
                                                     timestamps.push(timestamp);
                                                     temp_files.push((temp_file, timestamp));
 
                                                 }
-                                                Err(e) => eprintln!("Error listing file: {}", e),
+                                                Err(e) => error!("Error listing file: {}", e),
                                             }
                                         }
-
-                                        let min_timestamp = timestamps.iter().min().expect("Нет файлов для обработки");
-
-                                        let mut ffmpeg_command = Command::new("ffmpeg");
-
-                                        let mut filter_graph = String::new();
-                                        let mut filter_graph_suffix = String::new();
-                                                                        
-                                        for (i, (temp_file, timestamp)) in temp_files.iter().enumerate() {
-                                            println!("min timestamp {}", min_timestamp);
-                                            println!("timestamp {}", timestamp);
-                                            let delay = timestamp - min_timestamp;
-                                            filter_graph.push_str(&format!("[{}:a]adelay={}ms[delayed{}];", i, delay, i + 1));
-                                            filter_graph_suffix.push_str(&format!("[delayed{}]", i + 1));
-                                            ffmpeg_command
-                                                .arg("-i")
-                                                .arg(temp_file);
-                                        }
-
-                                        filter_graph.push_str(&filter_graph_suffix);
-
-                                        filter_graph
-                                            .push_str(&format!("amix=inputs={}", temp_files.len()));
-
-                                        let diff_duration = (end_duration - min_timestamp) / 1000 + 2;
-                                        ffmpeg_command
-                                            .arg("-to")
-                                            .arg(diff_duration.to_string());
-
-                                        println!("{}", filter_graph);
                                     
-                                        let output_file = format!("common_{}_{}_{}.ogg", topic_name, min_timestamp, end_duration);
-                                        ffmpeg_command
-                                            .arg("-filter_complex")
-                                            .arg(filter_graph)
-                                            .arg(output_file.clone());
-                                    
-                                    
-                                        let output = ffmpeg_command.output().expect("Не удалось запустить ffmpeg");
+                                        let (mut ffmpeg_command, output_file) = create_ffmpeg_command(&timestamps, &temp_files, end_duration, &topic_name);
+                                        let output = ffmpeg_command.output()
+                                            .expect("Не удалось запустить ffmpeg");
 
                                         if output.status.success() {
-                                            println!("Аудио успешно наложено и сохранено.");
-                                            let output_path = Path::from(format!("{}/{}.ogg", &topic_name, &output_file));
+                                            info!("Аудио успешно наложено и сохранено.");
+                                            let output_path = Path::from(format!("{}/{}", &topic_name, &output_file));
                                             let mut file = File::open(&output_file).expect("Не удалось открыть временный файл");
 
                                             let mut multipart_upload = object_store
@@ -253,7 +206,7 @@ async fn main() -> Result<(), ()> {
                                                     .expect("Не удалось загрузить часть файла");
                                         
                                         
-                                                println!("Часть {} загружена.", part_number);
+                                                info!("Часть {} загружена.", part_number);
                                                 part_number += 1;
                                             }
 
@@ -262,16 +215,18 @@ async fn main() -> Result<(), ()> {
                                                 .await
                                                 .expect("Не удалось завершить multipart-загрузку");
 
-                                            println!("Файл успешно загружен в S3: {}", output_path);
+                                            info!("Файл успешно загружен в S3: {}", output_path);
                                         } else {
-                                            eprintln!("Ошибка при наложении аудио:");
-                                            eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+                                            error!("Ошибка при наложении аудио:");
+                                            error!("{}", String::from_utf8_lossy(&output.stderr));
                                         }
                                     
                                         for (temp_file, _timestamp) in temp_files {
-                                            std::fs::remove_file(temp_file).expect("Не удалось удалить временный файл");
+                                            std::fs::remove_file(temp_file)
+                                                .expect("Не удалось удалить временный файл");
                                         }
-                                        std::fs::remove_file(output_file).expect("Не удалось удалить временный выходной файл");
+                                        std::fs::remove_file(output_file)
+                                            .expect("Не удалось удалить временный выходной файл");
 
                                         rooms.remove(&topic_name);
                                     }
@@ -281,7 +236,7 @@ async fn main() -> Result<(), ()> {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Ошибка при получении сообщения: {:?}", e);
+                    error!("Ошибка при получении сообщения: {:?}", e);
                 }
             }
         }
@@ -304,17 +259,17 @@ fn headers_to_map(headers: &BorrowedHeaders) -> HashMap<&str, Option<&[u8]>> {
 fn get_mini_store(bucket_name: &str) -> Result<Arc<dyn ObjectStore>, String> {
     let minio_access_key_id = std::env::var("MINIO_ACCESS_KEY_ID").expect("MINIO_ACCESS_KEY_ID env var must be defined");
     let minio_secret_access_key = std::env::var("MINIO_SECRET_ACCESS_KEY").expect("MINIO_SECRET_ACCESS_KEY env var must be defined");
-    let minio_endpoint = "http://127.0.0.1:9000";
+    let minio_endpoint = std::env::var("MINIO_URL").expect("MINIO_URL env var must be defined");
 
     let minio = AmazonS3Builder::new()
-    .with_access_key_id(minio_access_key_id)
-    .with_secret_access_key(minio_secret_access_key)
-    .with_endpoint(minio_endpoint) 
-    .with_bucket_name(bucket_name)
-    .with_region("us-east-1") 
-    .with_allow_http(true) 
-    .build()
-    .map_err(|e| format!("Error creating MinIO client: {}", e))?;
+        .with_access_key_id(minio_access_key_id)
+        .with_secret_access_key(minio_secret_access_key)
+        .with_endpoint(minio_endpoint) 
+        .with_bucket_name(bucket_name)
+        .with_region("us-east-1") 
+        .with_allow_http(true) 
+        .build()
+        .map_err(|e| format!("Error creating MinIO client: {}", e))?;
 
     Ok(Arc::new(minio))
 }
@@ -338,7 +293,7 @@ fn extract_timestamp_from_ogg_header(header: &[u8]) -> Option<u64> {
     offset += 4;
 
     // Ищем комментарий с START_TIME
-    for i in 0..comments_count {
+    for _i in 0..comments_count {
         // Читаем длину комментария (4 байта)
         let comment_len = u32::from_le_bytes(header[offset..offset + 4].try_into().ok()?) as usize;
         offset += 4;
@@ -355,4 +310,54 @@ fn extract_timestamp_from_ogg_header(header: &[u8]) -> Option<u64> {
         }
     }
     None
+}
+
+fn get_headers_value(headers: &HashMap<&str, Option<&[u8]>>, key: &str) -> String {
+    let value = headers.get(key)
+        .expect("cannot get a key")
+        .expect("cannot get a group_id");
+    let value = std::str::from_utf8(value)
+        .expect("cannot parse a group_id from &[u8]");
+    let value = String::from(value);    
+    value
+}
+
+fn create_ffmpeg_command(
+    timestamps: &Vec<u64>,
+    temp_files: &Vec<(PathBuf, u64)>,
+    end_duration: u64,
+    topic_name: &str,
+) -> (Command, String) {
+    let min_timestamp = timestamps.iter().min().expect("Нет файлов для обработки");
+
+    let mut ffmpeg_command = Command::new("ffmpeg");
+
+    let mut filter_graph = String::new();
+    let mut filter_graph_suffix = String::new();
+                                    
+    for (i, (temp_file, timestamp)) in temp_files.iter().enumerate() {
+        let delay = timestamp - min_timestamp;
+        filter_graph.push_str(&format!("[{}:a]adelay={}ms[delayed{}];", i, delay, i + 1));
+        filter_graph_suffix.push_str(&format!("[delayed{}]", i + 1));
+        ffmpeg_command
+            .arg("-i")
+            .arg(temp_file);
+    }
+
+    filter_graph.push_str(&filter_graph_suffix);
+
+    filter_graph
+        .push_str(&format!("amix=inputs={}", temp_files.len()));
+
+    let diff_duration = (end_duration - min_timestamp) / 1000 + 2;
+    ffmpeg_command
+        .arg("-to")
+        .arg(diff_duration.to_string());
+
+    let output_file = format!("common_{}_{}_{}.ogg", topic_name, min_timestamp, end_duration);
+    ffmpeg_command
+        .arg("-filter_complex")
+        .arg(filter_graph)
+        .arg(output_file.clone());
+    (ffmpeg_command, output_file)
 }

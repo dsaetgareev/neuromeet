@@ -7,11 +7,13 @@ use rdkafka::{message::{BorrowedHeaders, Headers}, Message};
 use sec_api::{kafka::{kafka_consumer::KafkaConsumer, kafka_rdclient::KafkaClient, SystemEvent}, s3::s3_writer::S3Writer};
 use tokio_stream::StreamExt;
 use tracing::info;
-use types::protos::{media_packet::{self, media_packet::MediaType, MediaPacket}, packet_wrapper::PacketWrapper};
+use types::protos::{media_packet::{media_packet::MediaType, MediaPacket}, packet_wrapper::PacketWrapper};
 use dotenv::dotenv;
 
 const SYSTEM_TOPIC_NAME: &str = "system_events";
 const SILENCE_PACKET: &[u8] = &[0xF8, 0xFF, 0xFE]; 
+const BUCKET_NAME: &str = "test";
+
 
 #[derive(Debug)]
 pub enum ConsumerError {
@@ -23,13 +25,13 @@ async fn main() -> Result<(), ()> {
     dotenv().ok();
 
     tracing_subscriber::fmt()
-    .with_max_level(tracing::Level::INFO)
-    .compact()
-    .with_file(true)
-    .with_line_number(true)
-    .with_thread_ids(true)
-    .with_target(false)
-    .init();
+        .with_max_level(tracing::Level::INFO)
+        .compact()
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_ids(true)
+        .with_target(false)
+        .init();
 
     let mut  system_consumer = KafkaConsumer::new();
 
@@ -42,24 +44,9 @@ async fn main() -> Result<(), ()> {
                         if SystemEvent::Create == SystemEvent::from_str(payload_str).expect("cannot parsing SystemEvent") {
                             let headers = msg.headers().expect("cannot get headers");
                             let headers = headers_to_map(headers);
-                            let group_id = headers.get("key")
-                                .expect("cannot get a key")
-                                .expect("cannot get a group_id");
-                            let group_id = std::str::from_utf8(group_id)
-                                .expect("cannot parse a group_id from &[u8]");
-                            let group_id = String::from(group_id);
-                            let topic_name = headers.get("topic_name")
-                                .expect("cannot get a topic_name")
-                                .expect("cannot get a topic_name");
-                            let topic_name = std::str::from_utf8(topic_name)
-                                .expect("cannot parse a topic_name from &[u8]");
-                            let topic_name = String::from(topic_name);
-                            let create_time = headers.get("timestamp")
-                                .expect("cannot get a create_time")
-                                .expect("cannot get a create_time");
-                            let create_time = std::str::from_utf8(create_time)
-                                .expect("cannot parse a topic_name from &[u8]");
-                            let create_time = String::from(create_time); 
+                            let group_id = get_headers_value(&headers, "key");
+                            let topic_name = get_headers_value(&headers, "topic_name");
+                            let create_time = get_headers_value(&headers, "timestamp");
                             println!("Получено сообщение: {}, {}", payload_str, group_id);
                             tokio::spawn(async move {
 
@@ -70,12 +57,11 @@ async fn main() -> Result<(), ()> {
                                 let origin_duration = Arc::new(RwLock::new(0));
                                 let duration = Arc::new(RwLock::new(0));
                                 let sequence = Arc::new(RwLock::new(0));
-                                let mut cache: BTreeMap<u64, MediaPacket> = BTreeMap::new();
+                                let cache: BTreeMap<u64, MediaPacket> = BTreeMap::new();
                                 let serial = rand::thread_rng().gen();
                                 let file_name = format!("{}/{}.{}.ogg", topic_name, group_id, create_time);
 
-                                let bucket_name = "test";
-                                let object_store = get_mini_store(bucket_name)
+                                let object_store = get_mini_store(BUCKET_NAME)
                                     .expect("cannot get a object sotre");
 
                                 let path = Path::from(file_name);
@@ -129,8 +115,6 @@ async fn main() -> Result<(), ()> {
                                             }
                                         }
                                     }
-                                    info!("end duration {}", *duration.read().unwrap());
-                                    info!("cache len {}", cache.len());
                                     let _ = ogg_writer.write_packet(
                                         Vec::new(),
                                         serial,
@@ -173,7 +157,6 @@ fn emit_packet(
     let mut write_origin_duration = origin_duration.write().expect("cannot get a duration");
 
     if *write_origin_duration == 0 {
-        *write_origin_duration = packet_timestamp;
         info!("start_time {}", packet_timestamp);
         let absgp = write_duration.clone();
         let _ = ogg_writer.write_packet(
@@ -186,46 +169,22 @@ fn emit_packet(
             serial,
             ogg::PacketWriteEndInfo::EndPage,
             absgp);    
+    }
+
+    *write_origin_duration = packet_timestamp; 
+    let data = packet.data;
+    if data.len() <= 18 {
+        *write_duration += 960;
+        let absgp = write_duration.clone();
+        if let Err(err) = ogg_writer.write_packet(
+            Cow::Borrowed(SILENCE_PACKET),
+            serial,
+            ogg::PacketWriteEndInfo::EndPage,
+            absgp
+        ) {
+            tracing::error!("{}", err)
+        }
     } else {
-        if packet_timestamp < *write_origin_duration {
-            info!("shpion");
-            return;
-        }
-        let diff = packet_timestamp - *write_origin_duration;
-        let amount = diff as f64 / 20.0;
-        if amount as i64 > 1 {
-            info!("packet_timestam {}", packet_timestamp);
-            info!("original duration {}", *write_origin_duration);
-            info!("tishina {}, {}", amount, diff);
-            let whole_part = amount.trunc();
-            let remainder = amount - whole_part;
-            println!("remainder {}", remainder);
-            for _i in 0..whole_part as i64 {
-                *write_duration += 960;
-                let absgp = write_duration.clone();
-                if let Err(err) = ogg_writer.write_packet(
-                    Cow::Borrowed(SILENCE_PACKET),
-                    serial,
-                    ogg::PacketWriteEndInfo::EndPage,
-                    absgp
-                ) {
-                    tracing::error!("{}", err);
-                } 
-            }
-            *write_duration += (remainder * 960.0) as u64;
-            let absgp = write_duration.clone();
-            if let Err(err) = ogg_writer.write_packet(
-                Cow::Borrowed(SILENCE_PACKET),
-                serial,
-                ogg::PacketWriteEndInfo::EndPage,
-                absgp
-            ) {
-                tracing::error!("{}", err);
-            } 
-        }
-    
-        *write_origin_duration = packet_timestamp; 
-        let data = packet.data;
         *write_duration += 960;
         let absgp = write_duration.clone();
         if let Err(err) = ogg_writer.write_packet(
@@ -282,17 +241,17 @@ fn headers_to_map(headers: &BorrowedHeaders) -> HashMap<&str, Option<&[u8]>> {
 fn get_mini_store(bucket_name: &str) -> Result<Arc<dyn ObjectStore>, String> {
     let minio_access_key_id = std::env::var("MINIO_ACCESS_KEY_ID").expect("MINIO_ACCESS_KEY_ID env var must be defined");
     let minio_secret_access_key = std::env::var("MINIO_SECRET_ACCESS_KEY").expect("MINIO_SECRET_ACCESS_KEY env var must be defined");
-    let minio_endpoint = "http://127.0.0.1:9000";
+    let minio_endpoint = std::env::var("MINIO_URL").expect("MINIO_URL env var must be defined");
 
     let minio = AmazonS3Builder::new()
-    .with_access_key_id(minio_access_key_id)
-    .with_secret_access_key(minio_secret_access_key)
-    .with_endpoint(minio_endpoint) 
-    .with_bucket_name(bucket_name)
-    .with_region("us-east-1") 
-    .with_allow_http(true) 
-    .build()
-    .map_err(|e| format!("Error creating MinIO client: {}", e))?;
+        .with_access_key_id(minio_access_key_id)
+        .with_secret_access_key(minio_secret_access_key)
+        .with_endpoint(minio_endpoint) 
+        .with_bucket_name(bucket_name)
+        .with_region("us-east-1") 
+        .with_allow_http(true) 
+        .build()
+        .map_err(|e| format!("Error creating MinIO client: {}", e))?;
 
     Ok(Arc::new(minio))
 }
@@ -304,3 +263,13 @@ fn _get_current_time() -> u64 {
         .as_millis() as u64;
     time
 }   
+
+fn get_headers_value(headers: &HashMap<&str, Option<&[u8]>>, key: &str) -> String {
+    let value = headers.get(key)
+        .expect("cannot get a key")
+        .expect("cannot get a group_id");
+    let value = std::str::from_utf8(value)
+        .expect("cannot parse a group_id from &[u8]");
+    let value = String::from(value);    
+    value
+}

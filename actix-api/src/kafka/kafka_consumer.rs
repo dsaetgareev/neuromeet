@@ -1,18 +1,19 @@
 use rdkafka::{consumer::{Consumer, StreamConsumer}, error::KafkaError, ClientConfig, TopicPartitionList};
 
-const KAFKA_CONNECTION_URL: &str = "localhost:9092";
-
 pub struct KafkaConsumer {
     client_config: ClientConfig,
+    kafka_connection_url: String,
 }
 
 impl KafkaConsumer {
     pub fn new() -> Self {
+        let kafka_connection_url = std::env::var("KAFKA_CONNECTION_URL").expect("KAFKA_CONNECTION_URL env var must be defined");
         let mut client_config = ClientConfig::new();
         client_config
-            .set("bootstrap.servers", KAFKA_CONNECTION_URL);
+            .set("bootstrap.servers", &kafka_connection_url);
         Self {
             client_config,
+            kafka_connection_url
         }
     }    
 
@@ -20,7 +21,7 @@ impl KafkaConsumer {
 
         let consumer: StreamConsumer = self.client_config
             .set("group.id", key)
-            .set("bootstrap.servers", KAFKA_CONNECTION_URL)
+            .set("bootstrap.servers", &self.kafka_connection_url)
             .create()
             .expect("cannot create a consumer");
         let partitions = vec![0];
