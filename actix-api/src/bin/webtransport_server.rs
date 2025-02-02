@@ -2,9 +2,11 @@ use std::net::ToSocketAddrs;
 
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use dotenv::dotenv;
-use tracing::{error, info};
+use tracing::{error, info, level_filters::LevelFilter};
 
 use sec_api::webtransport::{self, Certs};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use url::Url;
 
 async fn health_responder() -> impl Responder {
     HttpResponse::Ok().body("Ok")
@@ -13,12 +15,8 @@ async fn health_responder() -> impl Responder {
 #[actix_rt::main]
 async fn main() {
     dotenv().ok();
-    // Turned this off because it's too verbose
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
-        .with_writer(std::io::stderr)
-        .init();
+
+    let _  = init_logs("webtransport_server");
 
     let health_listen = std::env::var("HEALTH_LISTEN_URL")
         .expect("expected HEALTH_LISTEN_URL to be set")
@@ -60,4 +58,31 @@ async fn main() {
         webtransport::start(opt).await.unwrap();
     })
     .await;
+}
+
+fn init_logs(app_name: &str) -> Result<(), ()> {
+    let loki_url_str = std::env::var("LOKI_URL").expect("LOKI_URL env var must be defined");
+    let loki_url = Url::parse(&loki_url_str).unwrap();
+
+    let (layer, task) = tracing_loki::builder()
+       .label("application", app_name)
+       .unwrap()
+       .extra_field("pid", format!("{}", std::process::id()))
+       .unwrap()
+       .build_url(loki_url.clone())
+       .unwrap();
+
+   let filter = EnvFilter::builder()
+       .with_default_directive(LevelFilter::INFO.into())
+       .parse("")
+       .unwrap();
+
+   tracing_subscriber::registry()
+       .with(filter)
+       .with(layer)
+       .with(tracing_subscriber::fmt::Layer::new())
+       .init();
+
+   tokio::spawn(task);
+   Ok(())
 }

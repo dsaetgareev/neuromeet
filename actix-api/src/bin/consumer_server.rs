@@ -6,9 +6,11 @@ use rand::Rng;
 use rdkafka::{message::{BorrowedHeaders, Headers}, Message};
 use sec_api::{kafka::{kafka_consumer::KafkaConsumer, kafka_rdclient::KafkaClient, SystemEvent}, s3::s3_writer::S3Writer};
 use tokio_stream::StreamExt;
-use tracing::info;
+use tracing::{error, info, level_filters::LevelFilter};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use types::protos::{media_packet::{media_packet::MediaType, MediaPacket}, packet_wrapper::PacketWrapper};
 use dotenv::dotenv;
+use url::Url;
 
 const SYSTEM_TOPIC_NAME: &str = "system_events";
 const SILENCE_PACKET: &[u8] = &[0xF8, 0xFF, 0xFE]; 
@@ -23,15 +25,9 @@ pub enum ConsumerError {
 #[tokio::main]
 async fn main() -> Result<(), ()> {
     dotenv().ok();
+    let _ = init_logs("consumer_server");
 
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .compact()
-        .with_file(true)
-        .with_line_number(true)
-        .with_thread_ids(true)
-        .with_target(false)
-        .init();
+    info!("start consumer_server");
 
     let mut  system_consumer = KafkaConsumer::new();
 
@@ -47,7 +43,7 @@ async fn main() -> Result<(), ()> {
                             let group_id = get_headers_value(&headers, "key");
                             let topic_name = get_headers_value(&headers, "topic_name");
                             let create_time = get_headers_value(&headers, "timestamp");
-                            println!("Получено сообщение: {}, {}", payload_str, group_id);
+                            info!("Получено сообщение: {}, {}", payload_str, group_id);
                             tokio::spawn(async move {
 
                                 let topic_name = String::from(topic_name);
@@ -62,11 +58,22 @@ async fn main() -> Result<(), ()> {
                                 let file_name = format!("{}/{}.{}.ogg", topic_name, group_id, create_time);
 
                                 let object_store = get_mini_store(BUCKET_NAME)
-                                    .expect("cannot get a object sotre");
+                                    .map_err(|e| {
+                                        error!("Error get object sotre: {}", e);
+                                        e
+                                    })
+                                    .expect("Cannot get object store");
 
                                 let path = Path::from(file_name);
+                                let upload = object_store
+                                    .put_multipart(&path)
+                                    .await
+                                    .map_err(|e| {
+                                        error!("Error put multipart: {}", e);
+                                        e
+                                    })
+                                    .expect("cannot get upload");
 
-                                let upload = object_store.put_multipart(&path).await.expect("cannot get upload");
                                 let write = WriteMultipart::new(upload);
                                 let mut multipart_writer = S3Writer::new(write, 128);
                                 let mut ogg_writer = ogg::writing::PacketWriter::new(&mut multipart_writer);
@@ -110,7 +117,7 @@ async fn main() -> Result<(), ()> {
                                                 }
                                             }
                                             Err(e) => {
-                                                eprintln!("Ошибка при получении сообщения: {:?}", e);
+                                                error!("Ошибка при получении сообщения: {:?}", e);
                                                 return;
                                             }
                                         }
@@ -135,7 +142,7 @@ async fn main() -> Result<(), ()> {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Ошибка при получении сообщения: {:?}", e);
+                    error!("Ошибка при получении сообщения: {:?}", e);
                 }
             }
         }
@@ -238,7 +245,7 @@ fn headers_to_map(headers: &BorrowedHeaders) -> HashMap<&str, Option<&[u8]>> {
     map
 }
 
-fn get_mini_store(bucket_name: &str) -> Result<Arc<dyn ObjectStore>, String> {
+fn get_mini_store(bucket_name: &str) -> Result<Arc<dyn ObjectStore>, anyhow::Error> {
     let minio_access_key_id = std::env::var("MINIO_ACCESS_KEY_ID").expect("MINIO_ACCESS_KEY_ID env var must be defined");
     let minio_secret_access_key = std::env::var("MINIO_SECRET_ACCESS_KEY").expect("MINIO_SECRET_ACCESS_KEY env var must be defined");
     let minio_endpoint = std::env::var("MINIO_URL").expect("MINIO_URL env var must be defined");
@@ -251,7 +258,10 @@ fn get_mini_store(bucket_name: &str) -> Result<Arc<dyn ObjectStore>, String> {
         .with_region("us-east-1") 
         .with_allow_http(true) 
         .build()
-        .map_err(|e| format!("Error creating MinIO client: {}", e))?;
+        .map_err(|e| {
+            error!("Error creating MinIO client: {}", e);
+            e
+        }).expect("Error creating MinIO client");
 
     Ok(Arc::new(minio))
 }
@@ -272,4 +282,31 @@ fn get_headers_value(headers: &HashMap<&str, Option<&[u8]>>, key: &str) -> Strin
         .expect("cannot parse a group_id from &[u8]");
     let value = String::from(value);    
     value
+}
+
+fn init_logs(app_name: &str) -> Result<(), ()> {
+    let loki_url_str = std::env::var("LOKI_URL").expect("LOKI_URL env var must be defined");
+    let loki_url = Url::parse(&loki_url_str).unwrap();
+
+    let (layer, task) = tracing_loki::builder()
+       .label("application", app_name)
+       .unwrap()
+       .extra_field("pid", format!("{}", std::process::id()))
+       .unwrap()
+       .build_url(loki_url.clone())
+       .unwrap();
+
+   let filter = EnvFilter::builder()
+       .with_default_directive(LevelFilter::DEBUG.into())
+       .parse("")
+       .unwrap();
+
+   tracing_subscriber::registry()
+       .with(filter)
+       .with(layer)
+       .with(tracing_subscriber::fmt::Layer::new())
+       .init();
+
+   tokio::spawn(task);
+   Ok(())
 }

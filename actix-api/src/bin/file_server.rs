@@ -5,8 +5,10 @@ use object_store::{aws::AmazonS3Builder, path::Path, ObjectStore};
 use ogg::PacketReader;
 use rdkafka::{message::{BorrowedHeaders, Headers}, Message};
 use sec_api::kafka::{kafka_consumer::KafkaConsumer, SystemEvent};
-use tracing::{error, info};
+use tracing::{error, info, level_filters::LevelFilter};
 use dotenv::dotenv;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use url::Url;
 
 
 const SYSTEM_TOPIC_NAME: &str = "system_events";
@@ -59,14 +61,8 @@ async fn main() -> Result<(), ()> {
 
     dotenv().ok();
 
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .compact()
-        .with_file(true)
-        .with_line_number(true)
-        .with_thread_ids(true)
-        .with_target(false)
-        .init();
+    let _ = init_logs("file_server");
+    info!("file server start");
 
     let mut  system_consumer = KafkaConsumer::new();
 
@@ -107,7 +103,7 @@ async fn main() -> Result<(), ()> {
                                         error!("Error leaved unit {}, err: {:?}", group_id, err);
                                     }
                                     if room.unit_count == 0 {
-                                        println!("allreade for job");
+                                        info!("allreade for job {}", group_id);
 
                                         let end_duration = headers.get("end_duration")
                                             .expect("cannot get end_duration")
@@ -360,4 +356,31 @@ fn create_ffmpeg_command(
         .arg(filter_graph)
         .arg(output_file.clone());
     (ffmpeg_command, output_file)
+}
+
+fn init_logs(app_name: &str) -> Result<(), ()> {
+    let loki_url_str = std::env::var("LOKI_URL").expect("LOKI_URL env var must be defined");
+    let loki_url = Url::parse(&loki_url_str).unwrap();
+
+    let (layer, task) = tracing_loki::builder()
+       .label("application", app_name)
+       .unwrap()
+       .extra_field("pid", format!("{}", std::process::id()))
+       .unwrap()
+       .build_url(loki_url.clone())
+       .unwrap();
+
+   let filter = EnvFilter::builder()
+       .with_default_directive(LevelFilter::DEBUG.into())
+       .parse("")
+       .unwrap();
+
+   tracing_subscriber::registry()
+       .with(filter)
+       .with(layer)
+       .with(tracing_subscriber::fmt::Layer::new())
+       .init();
+
+   tokio::spawn(task);
+   Ok(())
 }
