@@ -22,9 +22,30 @@ impl KafkaConsumer {
         let consumer: StreamConsumer = self.client_config
             .set("group.id", key)
             .set("bootstrap.servers", &self.kafka_connection_url)
+            .set("auto.offset.reset", "earliest")
             .create()
             .expect("cannot create a consumer");
         let partitions = vec![0];
+        let mut tpl = TopicPartitionList::new();
+        for &partition in &partitions {
+            tpl.add_partition(topic_name, partition);
+        }
+        consumer.assign(&tpl).expect("cannot assign partitions");
+
+        consumer.subscribe(&[topic_name]).expect("cannot subscribe a topic");
+        Ok(consumer)
+    }
+    
+    pub async fn create_system_consumer(&mut self, topic_name: &str, key: &str) -> Result<StreamConsumer, KafkaError> {
+
+        let consumer: StreamConsumer = self.client_config
+            .set("group.id", key)
+            .set("bootstrap.servers", &self.kafka_connection_url)
+            .set("enable.auto.commit", "false")
+            .set("auto.offset.reset", "earliest")
+            .create()
+            .expect("cannot create a consumer");
+        let partitions = vec![0, 1, 2];
         let mut tpl = TopicPartitionList::new();
         for &partition in &partitions {
             tpl.add_partition(topic_name, partition);

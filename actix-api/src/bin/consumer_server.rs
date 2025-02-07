@@ -1,12 +1,12 @@
-use std::{borrow::Cow, collections::{BTreeMap, HashMap}, str::FromStr, sync::{Arc, RwLock}, time::{SystemTime, UNIX_EPOCH}};
+use std::{borrow::Cow, collections::{BTreeMap, HashMap}, str::FromStr, sync::{Arc, RwLock}, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use object_store::{aws::AmazonS3Builder, path::Path, ObjectStore, WriteMultipart};
 use protobuf::Message as _;
 use rand::Rng;
-use rdkafka::{message::{BorrowedHeaders, Headers}, Message};
+use rdkafka::{consumer::{CommitMode, Consumer}, message::{BorrowedHeaders, Headers}, Message};
 use sec_api::{kafka::{kafka_consumer::KafkaConsumer, kafka_rdclient::KafkaClient, SystemEvent}, s3::s3_writer::S3Writer};
 use tokio_stream::StreamExt;
-use tracing::{error, info, level_filters::LevelFilter};
+use tracing::{debug, error, info, level_filters::LevelFilter};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use types::protos::{media_packet::{media_packet::MediaType, MediaPacket}, packet_wrapper::PacketWrapper};
 use dotenv::dotenv;
@@ -30,124 +30,127 @@ async fn main() -> Result<(), ()> {
     info!("start consumer_server");
 
     let mut  system_consumer = KafkaConsumer::new();
+    let system_consumer = system_consumer.create_system_consumer(SYSTEM_TOPIC_NAME, "system_group").await.unwrap();
+    while let Some(message) = system_consumer.stream().next().await {
+        match message {
+            Ok(msg) => {
+                if let Some(payload) = msg.payload() {
+                    let payload_str = std::str::from_utf8(payload).unwrap();
+                    if SystemEvent::Create == SystemEvent::from_str(payload_str).expect("cannot parsing SystemEvent") {
+                        let headers = msg.headers().expect("cannot get headers");
+                        let headers = headers_to_map(headers);
+                        let user_id = get_headers_value(&headers, "key");
+                        let topic_name = get_headers_value(&headers, "topic_name");
+                        let create_time = get_headers_value(&headers, "timestamp");
+                        debug!("Получено сообщение: {}, {}, {}", payload_str, user_id, msg.offset());
+                        tokio::spawn(async move {
+                            let topic_name = String::from(topic_name);
+                            let user_id = String::from(user_id); 
+                            let group_id = format!("{}.{}", user_id, uuid::Uuid::new_v4());
+                            let create_time = String::from(create_time); 
 
-    if let Ok(system_consumer) = system_consumer.create_consumer(SYSTEM_TOPIC_NAME, "system_group").await {
-        while let Some(message) = system_consumer.stream().next().await {
-            match message {
-                Ok(msg) => {
-                    if let Some(payload) = msg.payload() {
-                        let payload_str = std::str::from_utf8(payload).unwrap();
-                        if SystemEvent::Create == SystemEvent::from_str(payload_str).expect("cannot parsing SystemEvent") {
-                            let headers = msg.headers().expect("cannot get headers");
-                            let headers = headers_to_map(headers);
-                            let group_id = get_headers_value(&headers, "key");
-                            let topic_name = get_headers_value(&headers, "topic_name");
-                            let create_time = get_headers_value(&headers, "timestamp");
-                            info!("Получено сообщение: {}, {}", payload_str, group_id);
-                            tokio::spawn(async move {
+                            let origin_duration = Arc::new(RwLock::new(0));
+                            let duration = Arc::new(RwLock::new(0));
+                            let sequence = Arc::new(RwLock::new(0));
+                            let cache: BTreeMap<u64, MediaPacket> = BTreeMap::new();
+                            let serial = rand::thread_rng().gen();
+                            let file_name = format!("{}/{}.{}.ogg", topic_name, user_id, create_time);
 
-                                let topic_name = String::from(topic_name);
-                                let group_id = String::from(group_id); 
-                                let create_time = String::from(create_time); 
+                            let object_store = get_mini_store(BUCKET_NAME)
+                                .map_err(|e| {
+                                    error!("Error get object sotre: {}", e);
+                                    e
+                                })
+                                .expect("Cannot get object store");
 
-                                let origin_duration = Arc::new(RwLock::new(0));
-                                let duration = Arc::new(RwLock::new(0));
-                                let sequence = Arc::new(RwLock::new(0));
-                                let cache: BTreeMap<u64, MediaPacket> = BTreeMap::new();
-                                let serial = rand::thread_rng().gen();
-                                let file_name = format!("{}/{}.{}.ogg", topic_name, group_id, create_time);
+                            let path = Path::from(file_name);
+                            let upload = object_store
+                                .put_multipart(&path)
+                                .await
+                                .map_err(|e| {
+                                    error!("Error put multipart: {}", e);
+                                    e
+                                })
+                                .expect("cannot get upload");
 
-                                let object_store = get_mini_store(BUCKET_NAME)
-                                    .map_err(|e| {
-                                        error!("Error get object sotre: {}", e);
-                                        e
-                                    })
-                                    .expect("Cannot get object store");
-
-                                let path = Path::from(file_name);
-                                let upload = object_store
-                                    .put_multipart(&path)
-                                    .await
-                                    .map_err(|e| {
-                                        error!("Error put multipart: {}", e);
-                                        e
-                                    })
-                                    .expect("cannot get upload");
-
-                                let write = WriteMultipart::new(upload);
-                                let mut multipart_writer = S3Writer::new(write, 128);
-                                let mut ogg_writer = ogg::writing::PacketWriter::new(&mut multipart_writer);
-                                let mut builder = KafkaConsumer::new();
-                                let consumer = builder.create_consumer(&topic_name, &group_id).await;
-                                if let Ok(common_consumer) = consumer {
-                                    while let Some(message) = common_consumer.stream().next().await {
-                                        match message {
-                                            Ok(msg) => {
-                                                let user_key = std::str::from_utf8(msg.key().unwrap())
-                                                    .expect("cannot get a user_key");
-                                                if group_id.eq(user_key) {
-                                                    if let Some(payload) = msg.payload() {
-                                                        match PacketWrapper::parse_from_bytes(&payload.to_vec()) {
-                                                            Ok(packet_wrapper) => {
-                                                                let packet: MediaPacket  = parse_media_packet(&packet_wrapper.data)
-                                                                    .expect("cannot get MediaPacket");
-                                                                let media_type = packet.media_type.enum_value().unwrap();
-                                                                if media_type == MediaType::AUDIO {
-                                                                    let current_sequence = packet.video_metadata.sequence;
-                                                                    let write_sequence = sequence.write().unwrap();
-                                                                    if current_sequence < *write_sequence {
-                                                                        info!("curren sequence < write sequence {} < {}", current_sequence, *write_sequence);
-                                                                    }
-                                                                    emit_packet(
-                                                                        packet,
-                                                                        &mut ogg_writer,
-                                                                        duration.clone(),
-                                                                        origin_duration.clone(),
-                                                                        serial
-                                                                    );
+                            let write = WriteMultipart::new(upload);
+                            let mut multipart_writer = S3Writer::new(write, 128);
+                            let mut ogg_writer = ogg::writing::PacketWriter::new(&mut multipart_writer);
+                            let mut builder = KafkaConsumer::new();
+                            let consumer = builder.create_consumer(&topic_name, &group_id).await;
+                            if let Ok(common_consumer) = consumer {
+                                let partitions = common_consumer.position().unwrap();
+                                common_consumer.seek_partitions(partitions, Duration::from_secs(5)).unwrap();
+                                while let Some(message) = common_consumer.stream().next().await {
+                                    match message {
+                                        Ok(msg) => {
+                                            let user_key = std::str::from_utf8(msg.key().unwrap())
+                                                .expect("cannot get a user_key");
+                                            if user_id.eq(user_key) {
+                                                if let Some(payload) = msg.payload() {
+                                                    match PacketWrapper::parse_from_bytes(&payload.to_vec()) {
+                                                        Ok(packet_wrapper) => {
+                                                            let packet: MediaPacket  = parse_media_packet(&packet_wrapper.data)
+                                                                .expect("cannot get MediaPacket");
+                                                            let media_type = packet.media_type.enum_value().unwrap();
+                                                            if media_type == MediaType::AUDIO {
+                                                                let current_sequence = packet.video_metadata.sequence;
+                                                                let write_sequence = sequence.write().unwrap();
+                                                                if current_sequence < *write_sequence {
+                                                                    info!("curren sequence < write sequence {} < {}", current_sequence, *write_sequence);
                                                                 }
-                                                            },
-                                                            Err(_err) => {
-                                                                tracing::error!("failed to parse media packet");
-                                                            },
-                                                        };
-                                                    } else {
-                                                        break;
-                                                    }
+                                                                emit_packet(
+                                                                    packet,
+                                                                    &mut ogg_writer,
+                                                                    duration.clone(),
+                                                                    origin_duration.clone(),
+                                                                    serial
+                                                                );
+                                                            }
+                                                        },
+                                                        Err(_err) => {
+                                                            tracing::error!("failed to parse media packet");
+                                                        },
+                                                    };
+                                                } else {
+                                                    break;
                                                 }
                                             }
-                                            Err(e) => {
-                                                error!("Ошибка при получении сообщения: {:?}", e);
-                                                return;
-                                            }
+                                        }
+                                        Err(e) => {
+                                            error!("Ошибка при получении сообщения: {:?}", e);
+                                            return;
                                         }
                                     }
-                                    let _ = ogg_writer.write_packet(
-                                        Vec::new(),
-                                        serial,
-                                        ogg::PacketWriteEndInfo::EndStream,
-                                        *duration.read().unwrap());
-                                    multipart_writer.finish().await.unwrap();
-                                    let producer = KafkaClient::new();
-                                    info!("leaved {}", group_id);
-                                    let mut additional_info = HashMap::new();
-                                    additional_info.insert("end_duration".to_string(), origin_duration.read().unwrap().to_string());
-                                    producer
-                                        .send_system_event(SystemEvent::Leave, &topic_name, &group_id, Some(additional_info))
-                                        .await
-                                        .expect("cannot send SystemEvent::Leave");
                                 }
-                            });
-                        }
+                                let _ = ogg_writer.write_packet(
+                                    Vec::new(),
+                                    serial,
+                                    ogg::PacketWriteEndInfo::EndStream,
+                                    *duration.read().unwrap());
+                                multipart_writer.finish().await.unwrap();
+                                let producer = KafkaClient::new();
+                                info!("leaved {}", user_id);
+                                let mut additional_info = HashMap::new();
+                                additional_info.insert("end_duration".to_string(), origin_duration.read().unwrap().to_string());
+                                producer
+                                    .send_system_event(SystemEvent::Leave, &topic_name, &user_id, Some(additional_info))
+                                    .await
+                                    .expect("cannot send SystemEvent::Leave");
+                            }
+                        });
+                    } else {
+                        debug!("Получено сообщение: {}/{}", payload_str, &msg.offset());
+                        system_consumer.commit_message(&msg, CommitMode::Async).unwrap();
+                        debug!("commited");
                     }
                 }
-                Err(e) => {
-                    error!("Ошибка при получении сообщения: {:?}", e);
-                }
+            }
+            Err(e) => {
+                error!("Ошибка при получении сообщения: {:?}", e);
             }
         }
     }
-
     Ok(())
 }
 
@@ -164,7 +167,7 @@ fn emit_packet(
     let mut write_origin_duration = origin_duration.write().expect("cannot get a duration");
 
     if *write_origin_duration == 0 {
-        info!("start_time {}", packet_timestamp);
+        info!("start_time {}, user: {}", packet_timestamp, packet.email);
         let absgp = write_duration.clone();
         let _ = ogg_writer.write_packet(
             generate_identification_header(),
@@ -277,9 +280,9 @@ fn _get_current_time() -> u64 {
 fn get_headers_value(headers: &HashMap<&str, Option<&[u8]>>, key: &str) -> String {
     let value = headers.get(key)
         .expect("cannot get a key")
-        .expect("cannot get a group_id");
+        .expect("cannot get a user_id");
     let value = std::str::from_utf8(value)
-        .expect("cannot parse a group_id from &[u8]");
+        .expect("cannot parse a user_id from &[u8]");
     let value = String::from(value);    
     value
 }
