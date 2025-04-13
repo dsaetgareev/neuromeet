@@ -43,8 +43,8 @@ oauth2 = { version = "4" }
 octets = "0.2.0"
 quinn = { version = "0.11.2", features = ["runtime-tokio", "ring"] }
 protobuf = "3.3.0"
-r2d2 = "0.8.10"
-r2d2_postgres = "0.18.1"
+deadpool-postgres = "0.14.1"
+postgres = "0.19.1" 
 rand = "0.8.5"
 rayon = "1.7.0"
 regex = "1.9.5"
@@ -56,6 +56,7 @@ serde = "1.0.140"
 serde_json = "1.0.82"
 tokio = { version = "1.28.2", features = ["full"] }
 tokio-stream = "0.1.14"
+tokio_schedule = "0.3.2"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["fmt", "ansi", "env-filter", "time", "tracing-log"] }
 time = "0.3.35"
@@ -72,3 +73,4 @@ rdkafka = { version = "0.37", features = ["cmake-build"] }
 object_store = { version = "0.11", features=["aws"] }
 tracing-loki = "0.2"
 url = "2.5.0"
+chrono = { version = "0.4", features = ["serde"] }

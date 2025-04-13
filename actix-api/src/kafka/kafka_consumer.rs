@@ -42,7 +42,7 @@ impl KafkaConsumer {
             .set("group.id", key)
             .set("bootstrap.servers", &self.kafka_connection_url)
             .set("enable.auto.commit", "false")
-            .set("auto.offset.reset", "earliest")
+            .set("auto.offset.reset", "latest")
             .create()
             .expect("cannot create a consumer");
         let partitions = vec![0, 1, 2];

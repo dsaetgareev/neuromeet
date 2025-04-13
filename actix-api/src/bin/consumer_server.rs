@@ -1,10 +1,10 @@
-use std::{borrow::Cow, collections::{BTreeMap, HashMap}, str::FromStr, sync::{Arc, RwLock}, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{borrow::Cow, collections::{BTreeMap, HashMap}, str::FromStr, sync::{Arc, RwLock}, time::{SystemTime, UNIX_EPOCH}};
 
 use object_store::{aws::AmazonS3Builder, path::Path, ObjectStore, WriteMultipart};
 use protobuf::Message as _;
 use rand::Rng;
 use rdkafka::{consumer::{CommitMode, Consumer}, message::{BorrowedHeaders, Headers}, Message};
-use sec_api::{kafka::{kafka_consumer::KafkaConsumer, kafka_rdclient::KafkaClient, SystemEvent}, s3::s3_writer::S3Writer};
+use sec_api::{dao::create_pool, kafka::{kafka_consumer::KafkaConsumer, kafka_rdclient::KafkaClient, SystemEvent}, s3::s3_writer::S3Writer};
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, level_filters::LevelFilter};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -29,9 +29,12 @@ async fn main() -> Result<(), ()> {
 
     info!("start consumer_server");
 
+    let pool = create_pool()
+        .map_err(|str| error!("{}", str)).map_err(|err| error!("{:?}", err)).unwrap();
     let mut  system_consumer = KafkaConsumer::new();
     let system_consumer = system_consumer.create_system_consumer(SYSTEM_TOPIC_NAME, "system_group").await.unwrap();
     while let Some(message) = system_consumer.stream().next().await {
+        let pool_clone = pool.clone();
         match message {
             Ok(msg) => {
                 if let Some(payload) = msg.payload() {
@@ -42,7 +45,7 @@ async fn main() -> Result<(), ()> {
                         let user_id = get_headers_value(&headers, "key");
                         let topic_name = get_headers_value(&headers, "topic_name");
                         let create_time = get_headers_value(&headers, "timestamp");
-                        debug!("Получено сообщение: {}, {}, {}", payload_str, user_id, msg.offset());
+                        info!("Получено сообщение: {}, {}, {}", payload_str, user_id, msg.offset());
                         tokio::spawn(async move {
                             let topic_name = String::from(topic_name);
                             let user_id = String::from(user_id); 
@@ -79,8 +82,18 @@ async fn main() -> Result<(), ()> {
                             let mut builder = KafkaConsumer::new();
                             let consumer = builder.create_consumer(&topic_name, &group_id).await;
                             if let Ok(common_consumer) = consumer {
-                                let partitions = common_consumer.position().unwrap();
-                                common_consumer.seek_partitions(partitions, Duration::from_secs(5)).unwrap();
+                                let connection = pool_clone.get().await.unwrap();
+                                connection.query(
+                                    "INSERT INTO public.conferences (conference, user_id, start_time, status)
+                                            VALUES ($1, $2, $3, $4)
+                                        ",
+                                    &[
+                                        &topic_name,
+                                        &user_id,
+                                        &create_time.parse::<i64>().unwrap(),
+                                        &"active"
+                                    ],
+                                ).await.unwrap();
                                 while let Some(message) = common_consumer.stream().next().await {
                                     match message {
                                         Ok(msg) => {
@@ -95,6 +108,17 @@ async fn main() -> Result<(), ()> {
                                                             let media_type = packet.media_type.enum_value().unwrap();
                                                             if media_type == MediaType::AUDIO {
                                                                 let current_sequence = packet.video_metadata.sequence;
+                                                                if current_sequence % 1000 == 0 {
+                                                                    let end_time = packet.timestamp as i64;
+                                                                    connection.query(
+                                                                        "update public.conferences c set end_time = $1
+                                                                                        where user_id = $2 ",
+                                                                        &[
+                                                                            &end_time,
+                                                                            &user_id
+                                                                        ],
+                                                                    ).await.unwrap();
+                                                                }
                                                                 let write_sequence = sequence.write().unwrap();
                                                                 if current_sequence < *write_sequence {
                                                                     info!("curren sequence < write sequence {} < {}", current_sequence, *write_sequence);
@@ -131,14 +155,25 @@ async fn main() -> Result<(), ()> {
                                 multipart_writer.finish().await.unwrap();
                                 let producer = KafkaClient::new();
                                 info!("leaved {}", user_id);
+                                let end_time = origin_duration.read().unwrap().to_string();
                                 let mut additional_info = HashMap::new();
-                                additional_info.insert("end_duration".to_string(), origin_duration.read().unwrap().to_string());
+                                additional_info.insert("end_duration".to_string(), end_time.clone());
                                 producer
                                     .send_system_event(SystemEvent::Leave, &topic_name, &user_id, Some(additional_info))
                                     .await
                                     .expect("cannot send SystemEvent::Leave");
+                                connection.query(
+                                    "update public.conferences c set status = $1, end_time = $2
+                                                	where user_id = $3 ",
+                                    &[
+                                        &"completed",
+                                        &end_time.parse::<i64>().unwrap(),
+                                        &user_id
+                                    ],
+                                ).await.unwrap();
                             }
                         });
+                        system_consumer.commit_message(&msg, CommitMode::Async).unwrap();
                     } else {
                         debug!("Получено сообщение: {}/{}", payload_str, &msg.offset());
                         system_consumer.commit_message(&msg, CommitMode::Async).unwrap();
@@ -296,11 +331,13 @@ fn init_logs(app_name: &str) -> Result<(), ()> {
        .unwrap()
        .extra_field("pid", format!("{}", std::process::id()))
        .unwrap()
+       .extra_field("thread", format!("{:?}", std::thread::current().id()))
+       .unwrap()
        .build_url(loki_url.clone())
        .unwrap();
 
    let filter = EnvFilter::builder()
-       .with_default_directive(LevelFilter::DEBUG.into())
+       .with_default_directive(LevelFilter::INFO.into())
        .parse("")
        .unwrap();
 

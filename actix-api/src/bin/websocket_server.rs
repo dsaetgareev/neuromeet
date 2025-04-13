@@ -21,7 +21,7 @@ use sec_api::{
         fetch_oauth_request, generate_and_store_oauth_request, request_token, upsert_user,
         AuthRequest,
     },
-    db::{get_pool, PostgresPool},
+    dao::{get_pool, PostgresPool},
     models::{AppConfig, AppState},
 };
 use tracing::{debug, error, info};

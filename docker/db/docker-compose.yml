@@ -1,0 +1,17 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:14.8-alpine3.18
+    environment:
+      POSTGRES_DB: "neuromeet"
+      POSTGRES_USER: "neuromeet"
+      POSTGRES_PASSWORD: "neuromeet"
+      PGDATA: "/var/lib/postgresql/data/pgdata"
+    volumes:
+      - ./init_db:/docker-entrypoint-initdb.d
+      - /home/d01/Documents/postgres/pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  neuromeet-data:
