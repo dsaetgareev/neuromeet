@@ -1,3 +1,4 @@
+use async_nats::rustls::Writer;
 use object_store::WriteMultipart;
 use std::io::{self, Write};
 
@@ -47,5 +48,12 @@ impl Write for S3Writer {
     fn flush(&mut self) -> io::Result<()> {
         // Асинхронный flush не поддерживается в синхронном Write
         Ok(())
+    }
+}
+
+impl std::io::Seek for S3Writer {
+    fn seek(&mut self, _pos: io::SeekFrom) -> io::Result<u64> {
+        // Err(io::Error::from(io::ErrorKind::Unsupported))
+        Ok(100)
     }
 }

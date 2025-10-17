@@ -4,8 +4,8 @@ members = [
     "actix-api",
     "bot",
     "types",
-    # "videocall-client",
-    # "yew-ui",
+    "videocall-client",
+    "yew-ui",
 ]
 # exclude = [
 #     # "actix-api",

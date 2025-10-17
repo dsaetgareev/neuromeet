@@ -23,6 +23,10 @@ path = "src/bin/consumer_server.rs"
 name = "file_server"
 path = "src/bin/file_server.rs"
 
+[[bin]]
+name = "screen_server"
+path = "src/bin/screen_server.rs"
+
 [dependencies]
 actix = "0.13.0"
 actix-cors = "0.6.1"
@@ -72,3 +76,4 @@ rdkafka = { version = "0.37", features = ["cmake-build"] }
 object_store = { version = "0.11", features=["aws"] }
 tracing-loki = "0.2"
 url = "2.5.0"
+webm = "1.1.2"
